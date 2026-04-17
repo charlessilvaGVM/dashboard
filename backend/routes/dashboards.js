@@ -275,6 +275,8 @@ router.put('/:id', adminOnly, validateId, async (req, res) => {
     const hintsVal = column_hints && typeof column_hints === 'object' && !Array.isArray(column_hints)
       ? JSON.stringify(column_hints) : null;
 
+    console.log('[DEBUG hints] received:', JSON.stringify(column_hints), '→ saved:', hintsVal);
+
     const [result] = await db.query(
       'UPDATE dashboards SET nome = ?, descricao = ?, sql_query = ?, chart_sql_query = ?, params = ?, chart_type = ?, links = ?, actions = ?, column_hints = ? WHERE id = ?',
       [nome, descricaoVal, sql_query, chartSql, serializeParams(params), chart_type || 'bar', serializeLinks(validatedLinks), serializeActions(validatedActions), hintsVal, req.params.id]
