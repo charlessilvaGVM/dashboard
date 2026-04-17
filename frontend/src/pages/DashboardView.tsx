@@ -584,13 +584,15 @@ export default function DashboardView() {
         {/* ── results ───────────────────────────────────────────────────── */}
         {!executing && queryResult && (
           <>
-            {/* stats */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <StatCard icon={<Rows    className="h-4 w-4" />} label="Total de linhas"   value={queryResult.rowCount.toLocaleString('pt-BR')} />
-              <StatCard icon={<Columns className="h-4 w-4" />} label="Colunas"           value={queryResult.columns.length} />
-              <StatCard icon={<Clock   className="h-4 w-4" />} label="Tempo de execução" value={`${queryResult.executionTime}ms`} />
-              <StatCard icon={<Database className="h-4 w-4" />} label="Página"           value={`${safePage} / ${totalPages}`} />
-            </div>
+            {/* stats — admin only */}
+            {admin && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <StatCard icon={<Rows    className="h-4 w-4" />} label="Total de linhas"   value={queryResult.rowCount.toLocaleString('pt-BR')} />
+                <StatCard icon={<Columns className="h-4 w-4" />} label="Colunas"           value={queryResult.columns.length} />
+                <StatCard icon={<Clock   className="h-4 w-4" />} label="Tempo de execução" value={`${queryResult.executionTime}ms`} />
+                <StatCard icon={<Database className="h-4 w-4" />} label="Página"           value={`${safePage} / ${totalPages}`} />
+              </div>
+            )}
 
             {/* chart */}
             {chartType !== 'none' && queryResult && (
@@ -598,17 +600,21 @@ export default function DashboardView() {
                 <CardHeader className="pb-0 pt-4 px-5">
                   <div className="flex items-center justify-between gap-3 flex-wrap">
                     <div>
-                      <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                        Visualização
-                        {dashboard.chart_sql_query && (
-                          <span style={{ fontSize: '0.68rem', fontWeight: 500, color: '#7c3aed', background: '#f5f3ff', border: '1px solid #ddd6fe', padding: '0.1rem 0.45rem', borderRadius: '0.3rem' }}>
-                            SQL próprio
-                          </span>
-                        )}
-                      </CardTitle>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {chartData ? `${chartData.data.length} registros · ${chartData.numCols.length} série${chartData.numCols.length > 1 ? 's' : ''}` : 'Configure as colunas para exibir o gráfico'}
-                      </p>
+                      {admin && (
+                        <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                          Visualização
+                          {dashboard.chart_sql_query && (
+                            <span style={{ fontSize: '0.68rem', fontWeight: 500, color: '#7c3aed', background: '#f5f3ff', border: '1px solid #ddd6fe', padding: '0.1rem 0.45rem', borderRadius: '0.3rem' }}>
+                              SQL próprio
+                            </span>
+                          )}
+                        </CardTitle>
+                      )}
+                      {admin && (
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {chartData ? `${chartData.data.length} registros · ${chartData.numCols.length} série${chartData.numCols.length > 1 ? 's' : ''}` : 'Configure as colunas para exibir o gráfico'}
+                        </p>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
                       {/* config button */}
