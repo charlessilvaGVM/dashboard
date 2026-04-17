@@ -272,8 +272,11 @@ export default function DashboardView() {
   // list of navigation action buttons
   const actionList = useMemo<DashboardAction[]>(() => dashboard?.actions || [], [dashboard?.actions]);
 
-  // map colName → hint text
-  const hintMap = useMemo<Record<string, string>>(() => dashboard?.column_hints || {}, [dashboard?.column_hints]);
+  // map colName (lowercase) → hint text for case-insensitive lookup
+  const hintMap = useMemo<Record<string, string>>(() => {
+    const raw = dashboard?.column_hints || {};
+    return Object.fromEntries(Object.entries(raw).map(([k, v]) => [k.toLowerCase(), v]));
+  }, [dashboard?.column_hints]);
 
   // ── drill-down opener ─────────────────────────────────────────────────────
   const openDrill = useCallback((link: DashboardLink, cellValue: string) => {
@@ -876,7 +879,7 @@ export default function DashboardView() {
                         {queryResult.columns.map(col => {
                           const isNum    = numericCols.has(col.name);
                           const hasLink  = linkMap.has(col.name);
-                          const hint     = hintMap[col.name];
+                          const hint     = hintMap[col.name.toLowerCase()];
                           return (
                             <th
                               key={col.name}

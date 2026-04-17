@@ -15,13 +15,24 @@ const queryLimiter = rateLimit({
   message: { error: 'Muitas requisições. Tente novamente em 1 minuto.' },
 });
 
-// M9 — LOG_SQL desativado por padrão
+// LOG_SQL desativado por padrão — ative com LOG_SQL=true no .env
 const LOG_SQL = process.env.LOG_SQL === 'true';
 
-function logSql(label, sql, values) {
+function logSql(label, paramSql, values, executionMs) {
   if (!LOG_SQL) return;
   const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);
-  console.log(`\n[SQL LOG ${ts}] ${label}\n${'─'.repeat(60)}\n${sql}\n${'─'.repeat(60)}`);
+
+  // reconstrói o SQL com os valores reais para facilitar leitura
+  let i = 0;
+  const fullSql = paramSql.replace(/\?/g, () => {
+    const v = values[i++];
+    if (v === null || v === undefined) return 'NULL';
+    if (typeof v === 'number') return String(v);
+    return `'${String(v).replace(/'/g, "''")}'`;
+  });
+
+  const timeStr = executionMs !== undefined ? ` — ${executionMs}ms` : '';
+  console.log(`\n[SQL ${ts}] ${label}${timeStr}\n${'─'.repeat(60)}\n${fullSql}\n${'─'.repeat(60)}`);
 }
 
 // C2 — Normalização de data para YYYY-MM-DD
@@ -104,8 +115,6 @@ router.post('/execute', queryLimiter, async (req, res) => {
     params && typeof params === 'object' ? params : {}
   );
 
-  logSql(dashboard_id ? `dash #${dashboard_id}` : 'drill-down', finalSql, values);
-
   const startTime = Date.now();
 
   try {
@@ -125,6 +134,7 @@ router.post('/execute', queryLimiter, async (req, res) => {
     }
 
     const executionTime = Date.now() - startTime;
+    logSql(dashboard_id ? `dash #${dashboard_id}` : 'drill-down', finalSql, values, executionTime);
 
     const columns = fields
       ? fields.map(f => ({ name: f.name, type: f.type || 'unknown' }))
