@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Plus, LogOut, Menu, X, BarChart2, ChevronRight, Users, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, LogOut, Menu, X, BarChart2, ChevronRight, Users, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { getUser, removeToken, isAdmin, logoutApi } from '@/services/api';
@@ -15,7 +15,6 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { label: 'Dashboards',     path: '/dashboards',     icon: <LayoutDashboard className="h-5 w-5" /> },
-  { label: 'Novo Dashboard', path: '/dashboards/new', icon: <Plus className="h-5 w-5" />, adminOnly: true },
   { label: 'Usuários',       path: '/users',          icon: <Users className="h-5 w-5" />, adminOnly: true },
 ];
 
