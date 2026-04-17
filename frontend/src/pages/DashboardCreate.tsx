@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Save, Database, SlidersHorizontal, Plus, RefreshCw, Trash2, BarChart2, TrendingUp, AreaChart, PieChart, Donut, Ban, Link2, MousePointerClick, FlaskConical, CheckCircle2, XCircle, Info } from 'lucide-react';
+import { ArrowLeft, Save, Database, SlidersHorizontal, Plus, RefreshCw, Trash2, BarChart2, TrendingUp, AreaChart, PieChart, Donut, Ban, Link2, MousePointerClick, FlaskConical, CheckCircle2, XCircle, Info, FileText } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import AttachmentsCard from '@/components/AttachmentsCard';
 import { Button } from '@/components/ui/button';
@@ -13,10 +13,18 @@ import {
 } from '@/services/api';
 import { toast } from '@/hooks/use-toast';
 
-// temp id for list management
 interface ParamRow   extends DashboardParam   { _id: string; }
 interface LinkRow    extends DashboardLink    { _id: string; }
 interface ActionRow  extends DashboardAction  { _id: string; }
+
+type TabId = 'sql' | 'grafico' | 'interativo' | 'docs';
+
+const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
+  { id: 'sql',        label: 'SQL & Parâmetros',  icon: <Database className="h-4 w-4" /> },
+  { id: 'grafico',    label: 'Gráfico',            icon: <BarChart2 className="h-4 w-4" /> },
+  { id: 'interativo', label: 'Drill-down & Hints', icon: <Link2 className="h-4 w-4" /> },
+  { id: 'docs',       label: 'Documentação',       icon: <FileText className="h-4 w-4" /> },
+];
 
 const CHART_OPTIONS: { value: ChartType; label: string; icon: React.ReactNode; preview: React.ReactNode }[] = [
   {
@@ -112,7 +120,7 @@ const inputStyle: React.CSSProperties = {
   outline: 'none', boxSizing: 'border-box',
 };
 
-interface FormErrors { nome?: string; sql_query?: string; params?: string; }
+interface FormErrors { nome?: string; sql_query?: string; }
 
 function validate(nome: string, sql_query: string): FormErrors {
   const e: FormErrors = {};
@@ -129,6 +137,7 @@ export default function DashboardCreate() {
   const isEdit      = !!id;
   const queryClient = useQueryClient();
 
+  const [activeTab,       setActiveTab]       = useState<TabId>('sql');
   const [nome,            setNome]            = useState('');
   const [descricao,       setDescricao]       = useState('');
   const [sqlQuery,        setSqlQuery]        = useState('');
@@ -155,7 +164,6 @@ export default function DashboardCreate() {
     queryFn: getDashboards,
   });
 
-
   useEffect(() => {
     if (existing) {
       setNome(existing.nome);
@@ -166,34 +174,22 @@ export default function DashboardCreate() {
         setChartSqlQuery(existing.chart_sql_query);
       }
       setChartType((existing.chart_type as ChartType) || 'bar');
-      setParamRows(
-        (existing.params || []).map(p => ({ ...p, _id: Math.random().toString(36).slice(2) }))
-      );
-      setLinkRows(
-        (existing.links || []).map(l => ({ ...l, _id: Math.random().toString(36).slice(2) }))
-      );
-      setActionRows(
-        (existing.actions || []).map(a => ({ ...a, _id: Math.random().toString(36).slice(2) }))
-      );
-      setHintRows(
-        Object.entries(existing.column_hints || {}).map(([col, text]) => ({
-          _id: Math.random().toString(36).slice(2), col, text,
-        }))
-      );
+      setParamRows((existing.params || []).map(p => ({ ...p, _id: Math.random().toString(36).slice(2) })));
+      setLinkRows((existing.links || []).map(l => ({ ...l, _id: Math.random().toString(36).slice(2) })));
+      setActionRows((existing.actions || []).map(a => ({ ...a, _id: Math.random().toString(36).slice(2) })));
+      setHintRows(Object.entries(existing.column_hints || {}).map(([col, text]) => ({
+        _id: Math.random().toString(36).slice(2), col, text,
+      })));
     }
   }, [existing]);
 
-  // ── test sql ────────────────────────────────────────────────────────────
+  // ── test sql ──────────────────────────────────────────────────────────
   const handleTestSql = async () => {
     if (!sqlQuery.trim()) return;
     setSqlTest({ status: 'testing' });
     try {
       const result = await testQuery(sqlQuery.trim());
-      if (result.valid) {
-        setSqlTest({ status: 'ok', message: 'Sintaxe válida' });
-      } else {
-        setSqlTest({ status: 'error', message: result.error || 'Erro de sintaxe' });
-      }
+      setSqlTest(result.valid ? { status: 'ok', message: 'Sintaxe válida' } : { status: 'error', message: result.error || 'Erro de sintaxe' });
     } catch (err: unknown) {
       setSqlTest({ status: 'error', message: err instanceof Error ? err.message : 'Erro ao testar' });
     }
@@ -204,77 +200,57 @@ export default function DashboardCreate() {
     setChartSqlTest({ status: 'testing' });
     try {
       const result = await testQuery(chartSqlQuery.trim());
-      if (result.valid) {
-        setChartSqlTest({ status: 'ok', message: 'Sintaxe válida' });
-      } else {
-        setChartSqlTest({ status: 'error', message: result.error || 'Erro de sintaxe' });
-      }
+      setChartSqlTest(result.valid ? { status: 'ok', message: 'Sintaxe válida' } : { status: 'error', message: result.error || 'Erro de sintaxe' });
     } catch (err: unknown) {
       setChartSqlTest({ status: 'error', message: err instanceof Error ? err.message : 'Erro ao testar' });
     }
   };
 
-  // ── param helpers ───────────────────────────────────────────────────────
+  // ── param helpers ─────────────────────────────────────────────────────
   const syncParamsFromSql = () => {
     const detected = extractSqlParams(sqlQuery);
-    const existing = new Set(paramRows.map(p => p.name));
-    const toAdd = detected.filter(n => !existing.has(n));
+    const existingNames = new Set(paramRows.map(p => p.name));
+    const toAdd = detected.filter(n => !existingNames.has(n));
     if (toAdd.length === 0) {
       toast({ title: 'Nenhum parâmetro novo', description: 'Todos os @params do SQL já estão na lista.' });
       return;
     }
-    setParamRows(prev => [
-      ...prev,
-      ...toAdd.map(name => {
-        const type = guessParamType(name);
-        return { _id: Math.random().toString(36).slice(2), name, label: name.replace(/_/g, ' '), type, defaultValue: getParamDefault(name, type) };
-      }),
-    ]);
+    setParamRows(prev => [...prev, ...toAdd.map(name => {
+      const type = guessParamType(name);
+      return { _id: Math.random().toString(36).slice(2), name, label: name.replace(/_/g, ' '), type, defaultValue: getParamDefault(name, type) };
+    })]);
   };
 
-  const addParam = () => {
-    setParamRows(prev => [...prev, { _id: Math.random().toString(36).slice(2), name: '', label: '', type: 'string', defaultValue: '' }]);
-  };
-
+  const addParam    = () => setParamRows(prev => [...prev, { _id: Math.random().toString(36).slice(2), name: '', label: '', type: 'string', defaultValue: '' }]);
   const removeParam = (_id: string) => setParamRows(prev => prev.filter(p => p._id !== _id));
-
   const updateParam = (_id: string, field: keyof ParamRow, value: string) => {
     setParamRows(prev => prev.map(p => {
       if (p._id !== _id) return p;
       const updated = { ...p, [field]: value };
-      // when type changes, reset default value
       if (field === 'type') updated.defaultValue = getParamDefault(p.name, value as ParamType);
       return updated;
     }));
   };
 
-  // ── link helpers ────────────────────────────────────────────────────────
-  const addLink = () => {
-    setLinkRows(prev => [...prev, { _id: Math.random().toString(36).slice(2), clickColumn: '', valueColumn: '', label: '', sql: '', paramName: '' }]);
-  };
-
+  // ── link helpers ──────────────────────────────────────────────────────
+  const addLink    = () => setLinkRows(prev => [...prev, { _id: Math.random().toString(36).slice(2), clickColumn: '', valueColumn: '', label: '', sql: '', paramName: '' }]);
   const removeLink = (_id: string) => setLinkRows(prev => prev.filter(l => l._id !== _id));
-
-  const updateLink = (_id: string, field: keyof LinkRow, value: string) => {
+  const updateLink = (_id: string, field: keyof LinkRow, value: string) =>
     setLinkRows(prev => prev.map(l => l._id !== _id ? l : { ...l, [field]: value }));
-  };
 
-  // ── hint helpers ────────────────────────────────────────────────────────
+  // ── hint helpers ──────────────────────────────────────────────────────
   const addHint    = () => setHintRows(prev => [...prev, { _id: Math.random().toString(36).slice(2), col: '', text: '' }]);
   const removeHint = (_id: string) => setHintRows(prev => prev.filter(h => h._id !== _id));
   const updateHint = (_id: string, field: 'col' | 'text', value: string) =>
     setHintRows(prev => prev.map(h => h._id !== _id ? h : { ...h, [field]: value }));
 
-  // ── action helpers ──────────────────────────────────────────────────────
-  const addAction = () => {
-    setActionRows(prev => [...prev, { _id: Math.random().toString(36).slice(2), label: '', sourceColumn: '', targetDashboardId: 0, targetParam: '' }]);
-  };
+  // ── action helpers ────────────────────────────────────────────────────
+  const addAction    = () => setActionRows(prev => [...prev, { _id: Math.random().toString(36).slice(2), label: '', sourceColumn: '', targetDashboardId: 0, targetParam: '' }]);
   const removeAction = (_id: string) => setActionRows(prev => prev.filter(a => a._id !== _id));
-  const updateAction = (_id: string, field: keyof ActionRow, value: string | number) => {
+  const updateAction = (_id: string, field: keyof ActionRow, value: string | number) =>
     setActionRows(prev => prev.map(a => a._id !== _id ? a : { ...a, [field]: value }));
-  };
 
-  // ── save ────────────────────────────────────────────────────────────────
+  // ── save ──────────────────────────────────────────────────────────────
   const buildPayload = () => ({
     nome: nome.trim(),
     descricao: descricao.trim() || undefined,
@@ -319,7 +295,10 @@ export default function DashboardCreate() {
     setTouched(true);
     const errs = validate(nome, sqlQuery);
     setErrors(errs);
-    if (Object.keys(errs).length > 0) return;
+    if (Object.keys(errs).length > 0) {
+      if (errs.sql_query) setActiveTab('sql');
+      return;
+    }
     const payload = buildPayload();
     isEdit ? updateMutation.mutate(payload) : createMutation.mutate(payload);
   };
@@ -339,9 +318,22 @@ export default function DashboardCreate() {
     );
   }
 
+  // ── tab button style ──────────────────────────────────────────────────
+  const tabBtn = (tab: TabId): React.CSSProperties => ({
+    display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+    padding: '0.5rem 1rem', borderRadius: '0.5rem 0.5rem 0 0',
+    fontSize: '0.875rem', fontWeight: activeTab === tab ? 600 : 400,
+    cursor: 'pointer', border: 'none', outline: 'none',
+    borderBottom: activeTab === tab ? '2px solid #2563eb' : '2px solid transparent',
+    color: activeTab === tab ? '#2563eb' : '#6b7280',
+    background: activeTab === tab ? '#eff6ff' : 'transparent',
+    transition: 'all 0.15s',
+  });
+
   return (
     <AppLayout title={isEdit ? 'Editar Dashboard' : 'Novo Dashboard'}>
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="max-w-4xl mx-auto space-y-5">
+
         {/* header */}
         <div className="flex items-center gap-4">
           <Button variant="outline" size="icon" type="button" onClick={() => navigate('/dashboards')}>
@@ -356,7 +348,8 @@ export default function DashboardCreate() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* ── informações básicas ──────────────────────────────────────── */}
+
+          {/* ── informações básicas (fora das abas) ─────────────────────── */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Informações Básicas</CardTitle>
@@ -387,625 +380,479 @@ export default function DashboardCreate() {
             </CardContent>
           </Card>
 
-          {/* ── query sql ────────────────────────────────────────────────── */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Database className="h-4 w-4 text-primary" />
-                Query SQL
-              </CardTitle>
-              <CardDescription>
-                Escreva uma consulta SELECT. Use <code className="bg-muted px-1 rounded text-xs">@nome_param</code> para parâmetros dinâmicos.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-1.5">
-                <label htmlFor="sql_query" style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500 }}>
-                  SQL <span style={{ color: '#ef4444' }}>*</span>
-                </label>
-                <textarea
-                  id="sql_query" rows={10}
-                  placeholder="SELECT * FROM tabela WHERE data BETWEEN @dt_ini AND @dt_fim"
-                  value={sqlQuery}
-                  onChange={e => { setSqlQuery(e.target.value); if (touched) setErrors(p => ({ ...p, sql_query: undefined })); setSqlTest({ status: 'idle' }); }}
-                  style={{
-                    ...inputStyle, padding: '0.75rem', resize: 'vertical',
-                    fontFamily: 'monospace', fontSize: '0.875rem',
-                    backgroundColor: '#020617', color: '#4ade80',
-                    borderColor: errors.sql_query ? '#ef4444' : '#374151',
-                  }}
-                />
-                {errors.sql_query && <p style={{ color: '#ef4444', fontSize: '0.75rem' }}>{errors.sql_query}</p>}
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-                  <button
-                    type="button"
-                    onClick={handleTestSql}
-                    disabled={sqlTest.status === 'testing' || !sqlQuery.trim()}
-                    style={{
-                      display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
-                      padding: '0.35rem 0.85rem', borderRadius: '0.375rem',
-                      fontSize: '0.8125rem', fontWeight: 500, cursor: sqlTest.status === 'testing' || !sqlQuery.trim() ? 'not-allowed' : 'pointer',
-                      border: '1px solid #d1d5db', background: '#fff', color: '#374151',
-                      opacity: !sqlQuery.trim() ? 0.5 : 1, transition: 'all 0.15s',
-                    }}
-                    onMouseOver={e => { if (sqlQuery.trim()) e.currentTarget.style.background = '#f9fafb'; }}
-                    onMouseOut={e => { e.currentTarget.style.background = '#fff'; }}
-                  >
-                    {sqlTest.status === 'testing' ? (
-                      <svg className="animate-spin" style={{ width: '0.875rem', height: '0.875rem' }} viewBox="0 0 24 24" fill="none">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                      </svg>
-                    ) : (
-                      <FlaskConical style={{ width: '0.875rem', height: '0.875rem' }} />
-                    )}
-                    {sqlTest.status === 'testing' ? 'Testando...' : 'Testar SQL'}
+          {/* ── abas ────────────────────────────────────────────────────── */}
+          <div>
+            {/* tab bar */}
+            <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb', gap: '0.25rem', overflowX: 'auto' }}>
+              {TABS.map(t => (
+                (t.id === 'docs' && !isEdit) ? null : (
+                  <button key={t.id} type="button" style={tabBtn(t.id)} onClick={() => setActiveTab(t.id)}>
+                    {t.icon}{t.label}
                   </button>
+                )
+              ))}
+            </div>
 
-                  {sqlTest.status === 'ok' && (
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', color: '#16a34a', fontSize: '0.8125rem', fontWeight: 500 }}>
-                      <CheckCircle2 style={{ width: '0.875rem', height: '0.875rem' }} />
-                      {sqlTest.message}
-                    </span>
-                  )}
-                  {sqlTest.status === 'error' && (
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', color: '#dc2626', fontSize: '0.8125rem', fontWeight: 500 }}>
-                      <XCircle style={{ width: '0.875rem', height: '0.875rem' }} />
-                      {sqlTest.message}
-                    </span>
-                  )}
-                  {sqlTest.status === 'idle' && (
-                    <p className="text-xs text-muted-foreground">Apenas SELECT. Use @param_nome para parâmetros dinâmicos.</p>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+            {/* tab content */}
+            <div style={{ paddingTop: '1.25rem' }} className="space-y-5">
 
-          {/* ── sql do gráfico (opcional) ───────────────────────────────── */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <BarChart2 className="h-4 w-4 text-primary" />
-                    SQL do Gráfico
-                    <span style={{ fontSize: '0.7rem', fontWeight: 400, color: '#6b7280', background: '#f3f4f6', padding: '0.1rem 0.45rem', borderRadius: '0.3rem' }}>opcional</span>
-                  </CardTitle>
-                  <CardDescription className="mt-1">
-                    Se preenchido, o gráfico usará este SQL em vez do principal. A tabela continuará usando o SQL principal.
-                  </CardDescription>
-                </div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', userSelect: 'none', fontSize: '0.875rem', fontWeight: 500 }}>
-                  <input
-                    type="checkbox"
-                    checked={chartSqlEnabled}
-                    onChange={e => {
-                      setChartSqlEnabled(e.target.checked);
-                      if (!e.target.checked) setChartSqlTest({ status: 'idle' });
-                    }}
-                    style={{ width: '1rem', height: '1rem', accentColor: '#2563eb', cursor: 'pointer' }}
-                  />
-                  Usar SQL separado para o gráfico
-                </label>
-              </div>
-            </CardHeader>
-            {chartSqlEnabled && (
-              <CardContent>
-                <div className="space-y-1.5">
-                  <textarea
-                    rows={8}
-                    placeholder="SELECT categoria, SUM(valor) as total FROM tabela WHERE data BETWEEN @dt_ini AND @dt_fim GROUP BY categoria"
-                    value={chartSqlQuery}
-                    onChange={e => { setChartSqlQuery(e.target.value); setChartSqlTest({ status: 'idle' }); }}
-                    style={{
-                      ...inputStyle, padding: '0.75rem', resize: 'vertical',
-                      fontFamily: 'monospace', fontSize: '0.875rem',
-                      backgroundColor: '#020617', color: '#4ade80',
-                      borderColor: '#374151',
-                    }}
-                  />
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-                    <button
-                      type="button"
-                      onClick={handleTestChartSql}
-                      disabled={chartSqlTest.status === 'testing' || !chartSqlQuery.trim()}
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
-                        padding: '0.35rem 0.85rem', borderRadius: '0.375rem',
-                        fontSize: '0.8125rem', fontWeight: 500,
-                        cursor: chartSqlTest.status === 'testing' || !chartSqlQuery.trim() ? 'not-allowed' : 'pointer',
-                        border: '1px solid #d1d5db', background: '#fff', color: '#374151',
-                        opacity: !chartSqlQuery.trim() ? 0.5 : 1, transition: 'all 0.15s',
-                      }}
-                      onMouseOver={e => { if (chartSqlQuery.trim()) e.currentTarget.style.background = '#f9fafb'; }}
-                      onMouseOut={e => { e.currentTarget.style.background = '#fff'; }}
-                    >
-                      {chartSqlTest.status === 'testing' ? (
-                        <svg className="animate-spin" style={{ width: '0.875rem', height: '0.875rem' }} viewBox="0 0 24 24" fill="none">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                        </svg>
-                      ) : (
-                        <FlaskConical style={{ width: '0.875rem', height: '0.875rem' }} />
-                      )}
-                      {chartSqlTest.status === 'testing' ? 'Testando...' : 'Testar SQL'}
-                    </button>
-                    {chartSqlTest.status === 'ok' && (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', color: '#16a34a', fontSize: '0.8125rem', fontWeight: 500 }}>
-                        <CheckCircle2 style={{ width: '0.875rem', height: '0.875rem' }} />
-                        {chartSqlTest.message}
-                      </span>
-                    )}
-                    {chartSqlTest.status === 'error' && (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', color: '#dc2626', fontSize: '0.8125rem', fontWeight: 500 }}>
-                        <XCircle style={{ width: '0.875rem', height: '0.875rem' }} />
-                        {chartSqlTest.message}
-                      </span>
-                    )}
-                    {chartSqlTest.status === 'idle' && (
-                      <p className="text-xs text-muted-foreground">Os mesmos @params do SQL principal podem ser usados aqui.</p>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            )}
-          </Card>
-
-          {/* ── tipo de gráfico ─────────────────────────────────────────── */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Tipo de Gráfico Padrão</CardTitle>
-              <CardDescription>Selecione como os dados serão visualizados por padrão.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.75rem' }}>
-                {CHART_OPTIONS.map(opt => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setChartType(opt.value)}
-                    style={{
-                      display: 'flex', flexDirection: 'column', alignItems: 'center',
-                      gap: '0.5rem', padding: '0.75rem 0.5rem',
-                      borderRadius: '0.625rem', cursor: 'pointer', transition: 'all 0.15s',
-                      border: `2px solid ${chartType === opt.value ? '#2563eb' : '#e5e7eb'}`,
-                      backgroundColor: chartType === opt.value ? '#eff6ff' : '#fff',
-                      outline: 'none',
-                    }}
-                  >
-                    <div style={{ width: '60px', height: '40px' }}>{opt.preview}</div>
-                    <div style={{
-                      display: 'flex', alignItems: 'center', gap: '0.3rem',
-                      fontSize: '0.75rem', fontWeight: chartType === opt.value ? 600 : 400,
-                      color: chartType === opt.value ? '#2563eb' : '#6b7280',
-                    }}>
-                      {opt.icon}{opt.label}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* ── parâmetros ───────────────────────────────────────────────── */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <SlidersHorizontal className="h-4 w-4 text-primary" />
-                    Parâmetros
-                  </CardTitle>
-                  <CardDescription className="mt-1">
-                    Defina os parâmetros @nome usados na query. O usuário poderá alterá-los no dashboard.
-                  </CardDescription>
-                </div>
-                <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={syncParamsFromSql}>
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  Sincronizar do SQL
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {paramRows.length > 0 && (
-                <div className="rounded-lg border overflow-hidden mb-4">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-muted/40 border-b">
-                        <th className="text-left px-3 py-2.5 font-medium text-muted-foreground w-36">Parâmetro</th>
-                        <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Label</th>
-                        <th className="text-left px-3 py-2.5 font-medium text-muted-foreground w-32">Tipo</th>
-                        <th className="text-left px-3 py-2.5 font-medium text-muted-foreground w-40">Valor Padrão</th>
-                        <th className="w-10" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {paramRows.map((p, idx) => (
-                        <tr key={p._id} className={`border-b last:border-0 ${idx % 2 === 1 ? 'bg-muted/10' : ''}`}>
-                          {/* name */}
-                          <td className="px-3 py-2">
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-                              <span style={{ fontFamily: 'monospace', color: '#2563eb', fontSize: '0.875rem' }}>@</span>
-                              <input
-                                type="text"
-                                value={p.name}
-                                placeholder="nome"
-                                onChange={e => updateParam(p._id, 'name', e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
-                                style={{ ...inputStyle, fontFamily: 'monospace', width: '100%' }}
-                              />
-                            </div>
-                          </td>
-                          {/* label */}
-                          <td className="px-3 py-2">
-                            <input
-                              type="text" placeholder="Ex: Data Inicial"
-                              value={p.label}
-                              onChange={e => updateParam(p._id, 'label', e.target.value)}
-                              style={inputStyle}
-                            />
-                          </td>
-                          {/* type */}
-                          <td className="px-3 py-2">
-                            <select
-                              value={p.type}
-                              onChange={e => updateParam(p._id, 'type', e.target.value)}
-                              style={{ ...inputStyle, cursor: 'pointer' }}
-                            >
-                              {(Object.entries(PARAM_TYPE_LABELS) as [ParamType, string][]).map(([v, l]) => (
-                                <option key={v} value={v}>{l}</option>
-                              ))}
-                            </select>
-                          </td>
-                          {/* default */}
-                          <td className="px-3 py-2">
-                            <input
-                              type={inputTypeFor(p.type)}
-                              step={p.type === 'decimal' ? '0.01' : p.type === 'integer' ? '1' : undefined}
-                              value={p.defaultValue}
-                              onChange={e => updateParam(p._id, 'defaultValue', e.target.value)}
-                              style={inputStyle}
-                            />
-                          </td>
-                          {/* remove */}
-                          <td className="px-2 py-2 text-center">
-                            <button
-                              type="button" onClick={() => removeParam(p._id)}
-                              className="text-muted-foreground hover:text-destructive transition-colors"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              {paramRows.length === 0 && (
-                <p className="text-sm text-muted-foreground mb-4">
-                  Nenhum parâmetro definido. Clique em "Sincronizar do SQL" para detectar automaticamente ou adicione manualmente.
-                </p>
-              )}
-
-              <Button type="button" variant="outline" size="sm" className="gap-2" onClick={addParam}>
-                <Plus className="h-4 w-4" />
-                Adicionar Parâmetro
-              </Button>
-            </CardContent>
-          </Card>
-
-          {/* ── links de drill-down ─────────────────────────────────────── */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <Link2 className="h-4 w-4 text-primary" />
-                    Links de Drill-Down
-                  </CardTitle>
-                  <CardDescription className="mt-1">
-                    Torna colunas clicáveis. Ao clicar num valor, executa um SQL com esse valor como parâmetro e exibe o resultado num painel.
-                  </CardDescription>
-                </div>
-                <Button type="button" variant="outline" size="sm" className="gap-2" onClick={addLink}>
-                  <Plus className="h-4 w-4" />
-                  Adicionar Link
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {linkRows.length === 0 && (
-                <p className="text-sm text-muted-foreground">
-                  Nenhum drill-down configurado.
-                </p>
-              )}
-
-              <div className="space-y-4">
-                {linkRows.map((l, idx) => (
-                  <div key={l._id} className="rounded-lg border p-4 space-y-3 relative">
-                    {/* remove button */}
-                    <button
-                      type="button"
-                      onClick={() => removeLink(l._id)}
-                      style={{ position: 'absolute', top: '0.75rem', right: '0.75rem' }}
-                      className="text-muted-foreground hover:text-destructive transition-colors"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-
-                    <p style={{ fontSize: '0.8rem', fontWeight: 600, color: '#6b7280' }}>Link #{idx + 1}</p>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
-                      {/* click column */}
-                      <div className="space-y-1">
-                        <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500 }}>
-                          Coluna clicável
-                        </label>
-                        <input
-                          type="text"
-                          value={l.clickColumn}
-                          placeholder="ex: producao"
-                          onChange={e => updateLink(l._id, 'clickColumn', e.target.value)}
-                          style={{ ...inputStyle, fontFamily: 'monospace', height: '2.25rem' }}
-                        />
-                        <p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>Coluna onde o usuário clica</p>
-                      </div>
-
-                      {/* value column */}
-                      <div className="space-y-1">
-                        <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500 }}>
-                          Coluna do valor
-                        </label>
-                        <input
-                          type="text"
-                          value={l.valueColumn}
-                          placeholder="ex: codigo"
-                          onChange={e => updateLink(l._id, 'valueColumn', e.target.value)}
-                          style={{ ...inputStyle, fontFamily: 'monospace', height: '2.25rem' }}
-                        />
-                        <p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>Coluna cujo valor vai para o @param</p>
-                      </div>
-
-                      {/* param name */}
-                      <div className="space-y-1">
-                        <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500 }}>
-                          Parâmetro no SQL
-                        </label>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '2px', height: '2.25rem' }}>
-                          <span style={{ fontFamily: 'monospace', color: '#2563eb', fontSize: '0.875rem', lineHeight: '2.25rem' }}>@</span>
-                          <input
-                            type="text"
-                            value={l.paramName}
-                            placeholder="cod_produto"
-                            onChange={e => updateLink(l._id, 'paramName', e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
-                            style={{ ...inputStyle, fontFamily: 'monospace', height: '2.25rem' }}
-                          />
-                        </div>
-                        <p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>Nome do @param no SQL abaixo</p>
-                      </div>
-                    </div>
-
-                    {/* label */}
-                    <div className="space-y-1">
-                      <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500 }}>
-                        Título do Painel (opcional)
-                      </label>
-                      <input
-                        type="text"
-                        value={l.label}
-                        placeholder="ex: Detalhes do Produto"
-                        onChange={e => updateLink(l._id, 'label', e.target.value)}
-                        style={{ ...inputStyle, height: '2.25rem' }}
-                      />
-                    </div>
-
-                    {/* sql */}
-                    <div className="space-y-1">
-                      <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500 }}>
-                        SQL do Detalhe <span style={{ color: '#ef4444' }}>*</span>
+              {/* ── aba 1: SQL & Parâmetros ───────────────────────────── */}
+              {activeTab === 'sql' && <>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <Database className="h-4 w-4 text-primary" />
+                      Query SQL
+                    </CardTitle>
+                    <CardDescription>
+                      Escreva uma consulta SELECT. Use <code className="bg-muted px-1 rounded text-xs">@nome_param</code> para parâmetros dinâmicos.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-1.5">
+                      <label htmlFor="sql_query" style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500 }}>
+                        SQL <span style={{ color: '#ef4444' }}>*</span>
                       </label>
                       <textarea
-                        rows={5}
-                        value={l.sql}
-                        placeholder={`SELECT * FROM produtos WHERE codigo = @${l.paramName || 'cod_produto'}`}
-                        onChange={e => updateLink(l._id, 'sql', e.target.value)}
+                        id="sql_query" rows={12}
+                        placeholder="SELECT * FROM tabela WHERE data BETWEEN @dt_ini AND @dt_fim"
+                        value={sqlQuery}
+                        onChange={e => { setSqlQuery(e.target.value); if (touched) setErrors(p => ({ ...p, sql_query: undefined })); setSqlTest({ status: 'idle' }); }}
                         style={{
                           ...inputStyle, padding: '0.75rem', resize: 'vertical',
-                          fontFamily: 'monospace', fontSize: '0.8125rem',
+                          fontFamily: 'monospace', fontSize: '0.875rem',
                           backgroundColor: '#020617', color: '#4ade80',
-                          borderColor: '#374151',
+                          borderColor: errors.sql_query ? '#ef4444' : '#374151',
                         }}
                       />
-                      <p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>
-                        Use <code style={{ background: '#f3f4f6', padding: '0 3px', borderRadius: 3 }}>@{l.paramName || 'param'}</code> onde o valor clicado será substituído.
-                      </p>
+                      {errors.sql_query && <p style={{ color: '#ef4444', fontSize: '0.75rem' }}>{errors.sql_query}</p>}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                        <button
+                          type="button" onClick={handleTestSql}
+                          disabled={sqlTest.status === 'testing' || !sqlQuery.trim()}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
+                            padding: '0.35rem 0.85rem', borderRadius: '0.375rem',
+                            fontSize: '0.8125rem', fontWeight: 500,
+                            cursor: sqlTest.status === 'testing' || !sqlQuery.trim() ? 'not-allowed' : 'pointer',
+                            border: '1px solid #d1d5db', background: '#fff', color: '#374151',
+                            opacity: !sqlQuery.trim() ? 0.5 : 1, transition: 'all 0.15s',
+                          }}
+                          onMouseOver={e => { if (sqlQuery.trim()) e.currentTarget.style.background = '#f9fafb'; }}
+                          onMouseOut={e => { e.currentTarget.style.background = '#fff'; }}
+                        >
+                          {sqlTest.status === 'testing'
+                            ? <svg className="animate-spin" style={{ width: '0.875rem', height: '0.875rem' }} viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                            : <FlaskConical style={{ width: '0.875rem', height: '0.875rem' }} />}
+                          {sqlTest.status === 'testing' ? 'Testando...' : 'Testar SQL'}
+                        </button>
+                        {sqlTest.status === 'ok' && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', color: '#16a34a', fontSize: '0.8125rem', fontWeight: 500 }}><CheckCircle2 style={{ width: '0.875rem', height: '0.875rem' }} />{sqlTest.message}</span>}
+                        {sqlTest.status === 'error' && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', color: '#dc2626', fontSize: '0.8125rem', fontWeight: 500 }}><XCircle style={{ width: '0.875rem', height: '0.875rem' }} />{sqlTest.message}</span>}
+                        {sqlTest.status === 'idle' && <p className="text-xs text-muted-foreground">Apenas SELECT. Use @param_nome para parâmetros dinâmicos.</p>}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+                  </CardContent>
+                </Card>
 
-          {/* ── botões de navegação ─────────────────────────────────────── */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <MousePointerClick className="h-4 w-4 text-primary" />
-                    Botões de Navegação
-                  </CardTitle>
-                  <CardDescription className="mt-1">
-                    Adiciona botões em cada linha da tabela que abrem outro dashboard com o valor da linha como parâmetro.
-                  </CardDescription>
-                </div>
-                <Button type="button" variant="outline" size="sm" className="gap-2" onClick={addAction}>
-                  <Plus className="h-4 w-4" />
-                  Adicionar Botão
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {actionRows.length === 0 && (
-                <p className="text-sm text-muted-foreground">Nenhum botão configurado.</p>
-              )}
-              {actionRows.length > 0 && (
-                <div className="rounded-lg border overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-muted/40 border-b">
-                        <th className="text-left px-3 py-2.5 font-medium text-muted-foreground w-40">Label do Botão</th>
-                        <th className="text-left px-3 py-2.5 font-medium text-muted-foreground w-36">Coluna de Valor</th>
-                        <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Dashboard Destino</th>
-                        <th className="text-left px-3 py-2.5 font-medium text-muted-foreground w-40">Parâmetro Destino</th>
-                        <th className="w-10" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {actionRows.map((a, idx) => (
-                        <tr key={a._id} className={`border-b last:border-0 ${idx % 2 === 1 ? 'bg-muted/10' : ''}`}>
-                          {/* label */}
-                          <td className="px-3 py-2">
-                            <input
-                              type="text"
-                              value={a.label}
-                              placeholder="ex: Ver Pedidos"
-                              onChange={e => updateAction(a._id, 'label', e.target.value)}
-                              style={{ ...inputStyle, height: '2.1rem' }}
-                            />
-                          </td>
-                          {/* source column */}
-                          <td className="px-3 py-2">
-                            <input
-                              type="text"
-                              value={a.sourceColumn}
-                              placeholder="ex: codigo"
-                              onChange={e => updateAction(a._id, 'sourceColumn', e.target.value)}
-                              style={{ ...inputStyle, fontFamily: 'monospace', height: '2.1rem' }}
-                            />
-                          </td>
-                          {/* target dashboard */}
-                          <td className="px-3 py-2">
-                            <select
-                              value={a.targetDashboardId || ''}
-                              onChange={e => updateAction(a._id, 'targetDashboardId', Number(e.target.value))}
-                              style={{ ...inputStyle, cursor: 'pointer', height: '2.1rem' }}
-                            >
-                              <option value="">-- selecione --</option>
-                              {allDashboards.map(d => (
-                                <option key={d.id} value={d.id}>{d.nome}</option>
-                              ))}
-                            </select>
-                          </td>
-                          {/* target param */}
-                          <td className="px-3 py-2">
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-                              <span style={{ fontFamily: 'monospace', color: '#2563eb', fontSize: '0.875rem' }}>@</span>
-                              <input
-                                type="text"
-                                value={a.targetParam}
-                                placeholder="cod_produto"
-                                onChange={e => updateAction(a._id, 'targetParam', e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
-                                style={{ ...inputStyle, fontFamily: 'monospace', height: '2.1rem' }}
-                              />
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <CardTitle className="flex items-center gap-2 text-base">
+                          <SlidersHorizontal className="h-4 w-4 text-primary" />
+                          Parâmetros
+                        </CardTitle>
+                        <CardDescription className="mt-1">
+                          Defina os parâmetros @nome usados na query. O usuário poderá alterá-los no dashboard.
+                        </CardDescription>
+                      </div>
+                      <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={syncParamsFromSql}>
+                        <RefreshCw className="h-3.5 w-3.5" />
+                        Sincronizar do SQL
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {paramRows.length > 0 && (
+                      <div className="rounded-lg border overflow-hidden mb-4">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-muted/40 border-b">
+                              <th className="text-left px-3 py-2.5 font-medium text-muted-foreground w-36">Parâmetro</th>
+                              <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Label</th>
+                              <th className="text-left px-3 py-2.5 font-medium text-muted-foreground w-32">Tipo</th>
+                              <th className="text-left px-3 py-2.5 font-medium text-muted-foreground w-40">Valor Padrão</th>
+                              <th className="w-10" />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {paramRows.map((p, idx) => (
+                              <tr key={p._id} className={`border-b last:border-0 ${idx % 2 === 1 ? 'bg-muted/10' : ''}`}>
+                                <td className="px-3 py-2">
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                    <span style={{ fontFamily: 'monospace', color: '#2563eb', fontSize: '0.875rem' }}>@</span>
+                                    <input type="text" value={p.name} placeholder="nome"
+                                      onChange={e => updateParam(p._id, 'name', e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+                                      style={{ ...inputStyle, fontFamily: 'monospace', width: '100%' }} />
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input type="text" placeholder="Ex: Data Inicial" value={p.label}
+                                    onChange={e => updateParam(p._id, 'label', e.target.value)} style={inputStyle} />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <select value={p.type} onChange={e => updateParam(p._id, 'type', e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }}>
+                                    {(Object.entries(PARAM_TYPE_LABELS) as [ParamType, string][]).map(([v, l]) => (
+                                      <option key={v} value={v}>{l}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input type={inputTypeFor(p.type)} step={p.type === 'decimal' ? '0.01' : p.type === 'integer' ? '1' : undefined}
+                                    value={p.defaultValue} onChange={e => updateParam(p._id, 'defaultValue', e.target.value)} style={inputStyle} />
+                                </td>
+                                <td className="px-2 py-2 text-center">
+                                  <button type="button" onClick={() => removeParam(p._id)} className="text-muted-foreground hover:text-destructive transition-colors">
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                    {paramRows.length === 0 && (
+                      <p className="text-sm text-muted-foreground mb-4">
+                        Nenhum parâmetro definido. Clique em "Sincronizar do SQL" para detectar automaticamente ou adicione manualmente.
+                      </p>
+                    )}
+                    <Button type="button" variant="outline" size="sm" className="gap-2" onClick={addParam}>
+                      <Plus className="h-4 w-4" />Adicionar Parâmetro
+                    </Button>
+                  </CardContent>
+                </Card>
+              </>}
+
+              {/* ── aba 2: Gráfico ────────────────────────────────────── */}
+              {activeTab === 'grafico' && <>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Tipo de Gráfico Padrão</CardTitle>
+                    <CardDescription>Selecione como os dados serão visualizados por padrão.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.75rem' }}>
+                      {CHART_OPTIONS.map(opt => (
+                        <button key={opt.value} type="button" onClick={() => setChartType(opt.value)}
+                          style={{
+                            display: 'flex', flexDirection: 'column', alignItems: 'center',
+                            gap: '0.5rem', padding: '0.75rem 0.5rem', borderRadius: '0.625rem',
+                            cursor: 'pointer', transition: 'all 0.15s',
+                            border: `2px solid ${chartType === opt.value ? '#2563eb' : '#e5e7eb'}`,
+                            backgroundColor: chartType === opt.value ? '#eff6ff' : '#fff', outline: 'none',
+                          }}>
+                          <div style={{ width: '60px', height: '40px' }}>{opt.preview}</div>
+                          <div style={{
+                            display: 'flex', alignItems: 'center', gap: '0.3rem',
+                            fontSize: '0.75rem', fontWeight: chartType === opt.value ? 600 : 400,
+                            color: chartType === opt.value ? '#2563eb' : '#6b7280',
+                          }}>
+                            {opt.icon}{opt.label}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <CardTitle className="flex items-center gap-2 text-base">
+                          <BarChart2 className="h-4 w-4 text-primary" />
+                          SQL do Gráfico
+                          <span style={{ fontSize: '0.7rem', fontWeight: 400, color: '#6b7280', background: '#f3f4f6', padding: '0.1rem 0.45rem', borderRadius: '0.3rem' }}>opcional</span>
+                        </CardTitle>
+                        <CardDescription className="mt-1">
+                          Se preenchido, o gráfico usará este SQL em vez do principal. A tabela continuará usando o SQL principal.
+                        </CardDescription>
+                      </div>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', userSelect: 'none', fontSize: '0.875rem', fontWeight: 500 }}>
+                        <input type="checkbox" checked={chartSqlEnabled}
+                          onChange={e => { setChartSqlEnabled(e.target.checked); if (!e.target.checked) setChartSqlTest({ status: 'idle' }); }}
+                          style={{ width: '1rem', height: '1rem', accentColor: '#2563eb', cursor: 'pointer' }} />
+                        Usar SQL separado para o gráfico
+                      </label>
+                    </div>
+                  </CardHeader>
+                  {chartSqlEnabled && (
+                    <CardContent>
+                      <div className="space-y-1.5">
+                        <textarea rows={10}
+                          placeholder="SELECT categoria, SUM(valor) as total FROM tabela WHERE data BETWEEN @dt_ini AND @dt_fim GROUP BY categoria"
+                          value={chartSqlQuery}
+                          onChange={e => { setChartSqlQuery(e.target.value); setChartSqlTest({ status: 'idle' }); }}
+                          style={{
+                            ...inputStyle, padding: '0.75rem', resize: 'vertical',
+                            fontFamily: 'monospace', fontSize: '0.875rem',
+                            backgroundColor: '#020617', color: '#4ade80', borderColor: '#374151',
+                          }} />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                          <button type="button" onClick={handleTestChartSql}
+                            disabled={chartSqlTest.status === 'testing' || !chartSqlQuery.trim()}
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
+                              padding: '0.35rem 0.85rem', borderRadius: '0.375rem',
+                              fontSize: '0.8125rem', fontWeight: 500,
+                              cursor: chartSqlTest.status === 'testing' || !chartSqlQuery.trim() ? 'not-allowed' : 'pointer',
+                              border: '1px solid #d1d5db', background: '#fff', color: '#374151',
+                              opacity: !chartSqlQuery.trim() ? 0.5 : 1, transition: 'all 0.15s',
+                            }}
+                            onMouseOver={e => { if (chartSqlQuery.trim()) e.currentTarget.style.background = '#f9fafb'; }}
+                            onMouseOut={e => { e.currentTarget.style.background = '#fff'; }}>
+                            {chartSqlTest.status === 'testing'
+                              ? <svg className="animate-spin" style={{ width: '0.875rem', height: '0.875rem' }} viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                              : <FlaskConical style={{ width: '0.875rem', height: '0.875rem' }} />}
+                            {chartSqlTest.status === 'testing' ? 'Testando...' : 'Testar SQL'}
+                          </button>
+                          {chartSqlTest.status === 'ok' && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', color: '#16a34a', fontSize: '0.8125rem', fontWeight: 500 }}><CheckCircle2 style={{ width: '0.875rem', height: '0.875rem' }} />{chartSqlTest.message}</span>}
+                          {chartSqlTest.status === 'error' && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', color: '#dc2626', fontSize: '0.8125rem', fontWeight: 500 }}><XCircle style={{ width: '0.875rem', height: '0.875rem' }} />{chartSqlTest.message}</span>}
+                          {chartSqlTest.status === 'idle' && <p className="text-xs text-muted-foreground">Os mesmos @params do SQL principal podem ser usados aqui.</p>}
+                        </div>
+                      </div>
+                    </CardContent>
+                  )}
+                </Card>
+              </>}
+
+              {/* ── aba 3: Drill-down & Hints ─────────────────────────── */}
+              {activeTab === 'interativo' && <>
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <CardTitle className="flex items-center gap-2 text-base">
+                          <Link2 className="h-4 w-4 text-primary" />
+                          Links de Drill-Down
+                        </CardTitle>
+                        <CardDescription className="mt-1">
+                          Torna colunas clicáveis. Ao clicar num valor, executa um SQL com esse valor como parâmetro.
+                        </CardDescription>
+                      </div>
+                      <Button type="button" variant="outline" size="sm" className="gap-2" onClick={addLink}>
+                        <Plus className="h-4 w-4" />Adicionar Link
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {linkRows.length === 0 && <p className="text-sm text-muted-foreground">Nenhum drill-down configurado.</p>}
+                    <div className="space-y-4">
+                      {linkRows.map((l, idx) => (
+                        <div key={l._id} className="rounded-lg border p-4 space-y-3 relative">
+                          <button type="button" onClick={() => removeLink(l._id)}
+                            style={{ position: 'absolute', top: '0.75rem', right: '0.75rem' }}
+                            className="text-muted-foreground hover:text-destructive transition-colors">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                          <p style={{ fontSize: '0.8rem', fontWeight: 600, color: '#6b7280' }}>Link #{idx + 1}</p>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+                            <div className="space-y-1">
+                              <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500 }}>Coluna clicável</label>
+                              <input type="text" value={l.clickColumn} placeholder="ex: producao"
+                                onChange={e => updateLink(l._id, 'clickColumn', e.target.value)}
+                                style={{ ...inputStyle, fontFamily: 'monospace', height: '2.25rem' }} />
+                              <p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>Coluna onde o usuário clica</p>
                             </div>
-                          </td>
-                          {/* remove */}
-                          <td className="px-2 py-2 text-center">
-                            <button
-                              type="button" onClick={() => removeAction(a._id)}
-                              className="text-muted-foreground hover:text-destructive transition-colors"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </td>
-                        </tr>
+                            <div className="space-y-1">
+                              <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500 }}>Coluna do valor</label>
+                              <input type="text" value={l.valueColumn} placeholder="ex: codigo"
+                                onChange={e => updateLink(l._id, 'valueColumn', e.target.value)}
+                                style={{ ...inputStyle, fontFamily: 'monospace', height: '2.25rem' }} />
+                              <p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>Coluna cujo valor vai para o @param</p>
+                            </div>
+                            <div className="space-y-1">
+                              <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500 }}>Parâmetro no SQL</label>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '2px', height: '2.25rem' }}>
+                                <span style={{ fontFamily: 'monospace', color: '#2563eb', fontSize: '0.875rem', lineHeight: '2.25rem' }}>@</span>
+                                <input type="text" value={l.paramName} placeholder="cod_produto"
+                                  onChange={e => updateLink(l._id, 'paramName', e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+                                  style={{ ...inputStyle, fontFamily: 'monospace', height: '2.25rem' }} />
+                              </div>
+                              <p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>Nome do @param no SQL abaixo</p>
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500 }}>Título do Painel (opcional)</label>
+                            <input type="text" value={l.label} placeholder="ex: Detalhes do Produto"
+                              onChange={e => updateLink(l._id, 'label', e.target.value)}
+                              style={{ ...inputStyle, height: '2.25rem' }} />
+                          </div>
+                          <div className="space-y-1">
+                            <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500 }}>
+                              SQL do Detalhe <span style={{ color: '#ef4444' }}>*</span>
+                            </label>
+                            <textarea rows={5} value={l.sql}
+                              placeholder={`SELECT * FROM produtos WHERE codigo = @${l.paramName || 'cod_produto'}`}
+                              onChange={e => updateLink(l._id, 'sql', e.target.value)}
+                              style={{
+                                ...inputStyle, padding: '0.75rem', resize: 'vertical',
+                                fontFamily: 'monospace', fontSize: '0.8125rem',
+                                backgroundColor: '#020617', color: '#4ade80', borderColor: '#374151',
+                              }} />
+                            <p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>
+                              Use <code style={{ background: '#f3f4f6', padding: '0 3px', borderRadius: 3 }}>@{l.paramName || 'param'}</code> onde o valor clicado será substituído.
+                            </p>
+                          </div>
+                        </div>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                    </div>
+                  </CardContent>
+                </Card>
 
-          {/* ── hints das colunas ──────────────────────────────────────── */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <Info className="h-4 w-4 text-primary" />
-                    Hints das Colunas
-                  </CardTitle>
-                  <CardDescription className="mt-1">
-                    Texto explicativo exibido ao passar o mouse sobre o cabeçalho de uma coluna na tabela.
-                  </CardDescription>
-                </div>
-                <Button type="button" variant="outline" size="sm" className="gap-2" onClick={addHint}>
-                  <Plus className="h-4 w-4" />
-                  Adicionar Hint
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {hintRows.length === 0 && (
-                <p className="text-sm text-muted-foreground">Nenhum hint configurado.</p>
-              )}
-              {hintRows.length > 0 && (
-                <div className="rounded-lg border overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-muted/40 border-b">
-                        <th className="text-left px-3 py-2.5 font-medium text-muted-foreground w-48">Nome da Coluna</th>
-                        <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Texto do Hint</th>
-                        <th className="w-10" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {hintRows.map((h, idx) => (
-                        <tr key={h._id} className={`border-b last:border-0 ${idx % 2 === 1 ? 'bg-muted/10' : ''}`}>
-                          <td className="px-3 py-2">
-                            <input
-                              type="text"
-                              value={h.col}
-                              placeholder="ex: valor_total"
-                              onChange={e => updateHint(h._id, 'col', e.target.value)}
-                              style={{ ...inputStyle, fontFamily: 'monospace', height: '2.1rem' }}
-                            />
-                          </td>
-                          <td className="px-3 py-2">
-                            <input
-                              type="text"
-                              value={h.text}
-                              placeholder="ex: Soma dos valores faturados no período"
-                              onChange={e => updateHint(h._id, 'text', e.target.value)}
-                              style={{ ...inputStyle, height: '2.1rem' }}
-                            />
-                          </td>
-                          <td className="px-2 py-2 text-center">
-                            <button
-                              type="button" onClick={() => removeHint(h._id)}
-                              className="text-muted-foreground hover:text-destructive transition-colors"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <CardTitle className="flex items-center gap-2 text-base">
+                          <MousePointerClick className="h-4 w-4 text-primary" />
+                          Botões de Navegação
+                        </CardTitle>
+                        <CardDescription className="mt-1">
+                          Adiciona botões em cada linha que abrem outro dashboard com o valor da linha como parâmetro.
+                        </CardDescription>
+                      </div>
+                      <Button type="button" variant="outline" size="sm" className="gap-2" onClick={addAction}>
+                        <Plus className="h-4 w-4" />Adicionar Botão
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {actionRows.length === 0 && <p className="text-sm text-muted-foreground">Nenhum botão configurado.</p>}
+                    {actionRows.length > 0 && (
+                      <div className="rounded-lg border overflow-hidden">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-muted/40 border-b">
+                              <th className="text-left px-3 py-2.5 font-medium text-muted-foreground w-40">Label do Botão</th>
+                              <th className="text-left px-3 py-2.5 font-medium text-muted-foreground w-36">Coluna de Valor</th>
+                              <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Dashboard Destino</th>
+                              <th className="text-left px-3 py-2.5 font-medium text-muted-foreground w-40">Parâmetro Destino</th>
+                              <th className="w-10" />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {actionRows.map((a, idx) => (
+                              <tr key={a._id} className={`border-b last:border-0 ${idx % 2 === 1 ? 'bg-muted/10' : ''}`}>
+                                <td className="px-3 py-2">
+                                  <input type="text" value={a.label} placeholder="ex: Ver Pedidos"
+                                    onChange={e => updateAction(a._id, 'label', e.target.value)}
+                                    style={{ ...inputStyle, height: '2.1rem' }} />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input type="text" value={a.sourceColumn} placeholder="ex: codigo"
+                                    onChange={e => updateAction(a._id, 'sourceColumn', e.target.value)}
+                                    style={{ ...inputStyle, fontFamily: 'monospace', height: '2.1rem' }} />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <select value={a.targetDashboardId || ''}
+                                    onChange={e => updateAction(a._id, 'targetDashboardId', Number(e.target.value))}
+                                    style={{ ...inputStyle, cursor: 'pointer', height: '2.1rem' }}>
+                                    <option value="">-- selecione --</option>
+                                    {allDashboards.map(d => <option key={d.id} value={d.id}>{d.nome}</option>)}
+                                  </select>
+                                </td>
+                                <td className="px-3 py-2">
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                    <span style={{ fontFamily: 'monospace', color: '#2563eb', fontSize: '0.875rem' }}>@</span>
+                                    <input type="text" value={a.targetParam} placeholder="cod_produto"
+                                      onChange={e => updateAction(a._id, 'targetParam', e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+                                      style={{ ...inputStyle, fontFamily: 'monospace', height: '2.1rem' }} />
+                                  </div>
+                                </td>
+                                <td className="px-2 py-2 text-center">
+                                  <button type="button" onClick={() => removeAction(a._id)}
+                                    className="text-muted-foreground hover:text-destructive transition-colors">
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
 
-          {/* ── attachments (edit mode only) ─────────────────────────── */}
-          {isEdit && <AttachmentsCard dashboardId={Number(id)} />}
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <CardTitle className="flex items-center gap-2 text-base">
+                          <Info className="h-4 w-4 text-primary" />
+                          Hints das Colunas
+                        </CardTitle>
+                        <CardDescription className="mt-1">
+                          Texto exibido ao passar o mouse sobre o cabeçalho de uma coluna na tabela.
+                        </CardDescription>
+                      </div>
+                      <Button type="button" variant="outline" size="sm" className="gap-2" onClick={addHint}>
+                        <Plus className="h-4 w-4" />Adicionar Hint
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {hintRows.length === 0 && <p className="text-sm text-muted-foreground">Nenhum hint configurado.</p>}
+                    {hintRows.length > 0 && (
+                      <div className="rounded-lg border overflow-hidden">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-muted/40 border-b">
+                              <th className="text-left px-3 py-2.5 font-medium text-muted-foreground w-48">Nome da Coluna</th>
+                              <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Texto do Hint</th>
+                              <th className="w-10" />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {hintRows.map((h, idx) => (
+                              <tr key={h._id} className={`border-b last:border-0 ${idx % 2 === 1 ? 'bg-muted/10' : ''}`}>
+                                <td className="px-3 py-2">
+                                  <input type="text" value={h.col} placeholder="ex: valor_total"
+                                    onChange={e => updateHint(h._id, 'col', e.target.value)}
+                                    style={{ ...inputStyle, fontFamily: 'monospace', height: '2.1rem' }} />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input type="text" value={h.text} placeholder="ex: Soma dos valores faturados no período"
+                                    onChange={e => updateHint(h._id, 'text', e.target.value)}
+                                    style={{ ...inputStyle, height: '2.1rem' }} />
+                                </td>
+                                <td className="px-2 py-2 text-center">
+                                  <button type="button" onClick={() => removeHint(h._id)}
+                                    className="text-muted-foreground hover:text-destructive transition-colors">
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </>}
 
-          {/* ── actions ──────────────────────────────────────────────────── */}
+              {/* ── aba 4: Documentação ───────────────────────────────── */}
+              {activeTab === 'docs' && isEdit && (
+                <AttachmentsCard dashboardId={Number(id)} />
+              )}
+
+            </div>
+          </div>
+
+          {/* ── actions ─────────────────────────────────────────────────── */}
           <div className="flex items-center gap-3 justify-end">
             <Button type="button" variant="outline" disabled={isSaving} onClick={() => navigate('/dashboards')}>
               Cancelar
@@ -1018,6 +865,7 @@ export default function DashboardCreate() {
               )}
             </Button>
           </div>
+
         </form>
       </div>
     </AppLayout>
