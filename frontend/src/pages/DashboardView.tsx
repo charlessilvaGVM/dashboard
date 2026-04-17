@@ -1058,24 +1058,25 @@ export default function DashboardView() {
 
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
 
-            {/* inputs para parâmetros extras — pre-preenchidos do dash pai, Enter re-executa */}
+            {/* inputs para parâmetros extras */}
             {drillState && Object.keys(drillState.extraParams).length > 0 && (
-              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '0.5rem', padding: '0.875rem', flexShrink: 0 }}>
-                <p style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '0.625rem' }}>
-                  Parâmetros <span style={{ fontWeight: 400, color: '#94a3b8' }}>(Enter para re-executar)</span>
+              <div className="bg-muted/50 border rounded-lg" style={{ padding: '0.875rem', flexShrink: 0 }}>
+                <p className="text-muted-foreground" style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.625rem' }}>
+                  Parâmetros <span style={{ fontWeight: 400 }}>(Enter para re-executar)</span>
                 </p>
                 <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
                   {Object.entries(drillState.extraParams).map(([name, value]) => {
                     const isDate = /dt|data|date|ini|fim|start|end|from|to/.test(name.toLowerCase());
                     return (
                       <div key={name} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', minWidth: '160px' }}>
-                        <label style={{ fontSize: '0.75rem', fontWeight: 500, color: '#64748b', fontFamily: 'monospace' }}>@{name}</label>
+                        <label className="text-muted-foreground" style={{ fontSize: '0.75rem', fontWeight: 500, fontFamily: 'monospace' }}>@{name}</label>
                         <input
                           type={isDate ? 'date' : 'text'}
                           value={value}
                           onChange={e => setDrillState(s => s ? { ...s, extraParams: { ...s.extraParams, [name]: e.target.value } } : null)}
                           onKeyDown={e => { if (e.key === 'Enter' && drillState) runDrill({ ...drillState, extraParams: { ...drillState.extraParams, [name]: (e.target as HTMLInputElement).value } }); }}
-                          style={{ height: '2rem', padding: '0 0.5rem', border: '1px solid #cbd5e1', borderRadius: '0.375rem', fontSize: '0.8125rem', outline: 'none', background: '#fff', boxSizing: 'border-box' }}
+                          className="bg-background text-foreground border border-input"
+                          style={{ height: '2rem', padding: '0 0.5rem', borderRadius: '0.375rem', fontSize: '0.8125rem', outline: 'none', boxSizing: 'border-box' }}
                         />
                       </div>
                     );
@@ -1085,7 +1086,7 @@ export default function DashboardView() {
             )}
 
             {drillState?.loading && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '3rem', gap: '0.75rem', color: '#6b7280' }}>
+              <div className="text-muted-foreground" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '3rem', gap: '0.75rem' }}>
                 <svg className="animate-spin" style={{ width: '1.5rem', height: '1.5rem' }} viewBox="0 0 24 24" fill="none">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -1095,7 +1096,7 @@ export default function DashboardView() {
             )}
 
             {drillState?.error && (
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', padding: '1rem', background: '#fef2f2', borderRadius: '0.5rem', color: '#dc2626' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', padding: '1rem', background: 'hsl(0 84.2% 60.2% / 0.1)', borderRadius: '0.5rem', color: 'hsl(var(--destructive))' }}>
                 <AlertCircle style={{ width: '1.25rem', height: '1.25rem', flexShrink: 0, marginTop: '0.125rem' }} />
                 <div>
                   <p style={{ fontWeight: 600, fontSize: '0.875rem' }}>Erro ao executar</p>
@@ -1111,7 +1112,7 @@ export default function DashboardView() {
               );
               return (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', flex: 1, minHeight: 0 }}>
-                  <div style={{ display: 'flex', gap: '0.5rem', fontSize: '0.75rem', color: '#6b7280', flexShrink: 0, alignItems: 'center' }}>
+                  <div className="text-muted-foreground" style={{ display: 'flex', gap: '0.5rem', fontSize: '0.75rem', flexShrink: 0, alignItems: 'center' }}>
                     <span>{r.rowCount.toLocaleString('pt-BR')} linhas</span>
                     <span>·</span>
                     <span>{r.columns.length} colunas</span>
@@ -1120,30 +1121,32 @@ export default function DashboardView() {
                     <span style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem' }}>
                       <button
                         onClick={() => exportExcel(r.columns, r.rows, drillState.title)}
-                        style={{ display:'flex',alignItems:'center',gap:'0.3rem',padding:'0.2rem 0.6rem',borderRadius:'0.35rem',border:'1px solid #d1d5db',background:'#fff',fontSize:'0.75rem',fontWeight:500,color:'#166534',cursor:'pointer' }}
+                        className="bg-background text-foreground border border-input hover:bg-muted"
+                        style={{ display:'flex',alignItems:'center',gap:'0.3rem',padding:'0.2rem 0.6rem',borderRadius:'0.35rem',fontSize:'0.75rem',fontWeight:500,cursor:'pointer' }}
                       >
                         <FileSpreadsheet style={{ width: '0.8rem', height: '0.8rem' }} />Excel
                       </button>
                       <button
                         onClick={() => exportPdf(r.columns, r.rows, drillState.title)}
-                        style={{ display:'flex',alignItems:'center',gap:'0.3rem',padding:'0.2rem 0.6rem',borderRadius:'0.35rem',border:'1px solid #d1d5db',background:'#fff',fontSize:'0.75rem',fontWeight:500,color:'#991b1b',cursor:'pointer' }}
+                        className="bg-background text-foreground border border-input hover:bg-muted"
+                        style={{ display:'flex',alignItems:'center',gap:'0.3rem',padding:'0.2rem 0.6rem',borderRadius:'0.35rem',fontSize:'0.75rem',fontWeight:500,cursor:'pointer' }}
                       >
                         <FileText style={{ width: '0.8rem', height: '0.8rem' }} />PDF
                       </button>
                     </span>
                   </div>
-                  <div style={{ overflow: 'auto', flex: 1, minHeight: 0, border: '1px solid #e5e7eb', borderRadius: '0.5rem' }}>
+                  <div className="border" style={{ overflow: 'auto', flex: 1, minHeight: 0, borderRadius: '0.5rem' }}>
                     <table style={{ width: '100%', fontSize: '0.8125rem', borderCollapse: 'collapse' }}>
                       <thead>
-                        <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                        <tr className="bg-muted/60 border-b">
                           {r.columns.map(col => (
                             <th
                               key={col.name}
+                              className="text-muted-foreground bg-muted/60"
                               style={{
-                                padding: '0.5rem 0.75rem', fontWeight: 600, color: '#6b7280',
+                                padding: '0.5rem 0.75rem', fontWeight: 600,
                                 whiteSpace: 'nowrap', textAlign: drillNumCols.has(col.name) ? 'right' : 'left',
-                                position: 'sticky', top: 0, background: '#f9fafb', zIndex: 1,
-                                borderBottom: '2px solid #e5e7eb',
+                                position: 'sticky', top: 0, zIndex: 1,
                               }}
                             >
                               {col.name}
@@ -1153,7 +1156,7 @@ export default function DashboardView() {
                       </thead>
                       <tbody>
                         {r.rows.map((row, ridx) => (
-                          <tr key={ridx} style={{ borderBottom: '1px solid #e5e7eb', background: ridx % 2 === 1 ? '#f9fafb' : '#fff' }}>
+                          <tr key={ridx} className={`border-b ${ridx % 2 === 1 ? 'bg-muted/20' : 'bg-background'}`}>
                             {r.columns.map(col => {
                               const val = row[col.name];
                               const isNull = val === null || val === undefined;
@@ -1161,6 +1164,7 @@ export default function DashboardView() {
                               return (
                                 <td
                                   key={col.name}
+                                  className="text-foreground"
                                   style={{
                                     padding: '0.4rem 0.75rem', whiteSpace: 'nowrap',
                                     textAlign: isNum ? 'right' : 'left',
@@ -1168,7 +1172,7 @@ export default function DashboardView() {
                                   }}
                                 >
                                   {isNull
-                                    ? <span style={{ color: '#9ca3af', fontStyle: 'italic', fontSize: '0.75rem' }}>NULL</span>
+                                    ? <span className="text-muted-foreground" style={{ fontStyle: 'italic', fontSize: '0.75rem' }}>NULL</span>
                                     : formatValue(val)}
                                 </td>
                               );
