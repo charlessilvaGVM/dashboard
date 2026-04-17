@@ -6,9 +6,8 @@ import { queryClient } from '@/lib/queryClient';
 import App from './App';
 import './index.css';
 
-// Force light mode
-document.documentElement.classList.remove('dark');
-document.documentElement.classList.add('light');
+const savedTheme = localStorage.getItem('gvm_theme') || 'light';
+document.documentElement.classList.add(savedTheme);
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

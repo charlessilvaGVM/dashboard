@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, LogOut, Menu, X, BarChart2, ChevronRight, Users, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, LogOut, Menu, X, BarChart2, ChevronRight, Users, ShieldCheck, Sun, Moon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { getUser, removeToken, isAdmin, logoutApi } from '@/services/api';
 import { queryClient } from '@/lib/queryClient';
+import { useTheme } from '@/hooks/use-theme';
 
 interface NavItem {
   label: string;
@@ -29,6 +30,7 @@ export function AppLayout({ children, title }: AppLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const user        = getUser();
   const admin       = isAdmin();
+  const { theme, toggle } = useTheme();
 
   const handleLogout = async () => {
     // M3 — Revogar token no backend antes de limpar localmente
@@ -145,6 +147,15 @@ export function AppLayout({ children, title }: AppLayoutProps) {
               <span>{user?.usuario || 'Usuário'}</span>
               {admin && <span className="text-xs text-violet-500 font-medium">(admin)</span>}
             </div>
+            <Button
+              variant="ghost" size="icon"
+              onClick={toggle}
+              title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'}
+            >
+              {theme === 'dark'
+                ? <Sun className="h-4 w-4 text-yellow-400" />
+                : <Moon className="h-4 w-4" />}
+            </Button>
           </div>
         </header>
         <main className="flex-1 overflow-y-auto bg-muted/30 p-4 lg:p-6">
