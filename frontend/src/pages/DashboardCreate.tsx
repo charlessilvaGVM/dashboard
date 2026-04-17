@@ -150,6 +150,8 @@ export default function DashboardCreate() {
   const [hintRows,        setHintRows]        = useState<{ _id: string; col: string; text: string }[]>([]);
   const [errors,          setErrors]          = useState<FormErrors>({});
   const [touched,         setTouched]         = useState(false);
+  const [confirmOpen,     setConfirmOpen]     = useState(false);
+  const [pendingPayload,  setPendingPayload]  = useState<ReturnType<typeof buildPayload> | null>(null);
   const [sqlTest,         setSqlTest]         = useState<{ status: 'idle' | 'testing' | 'ok' | 'error'; message?: string }>({ status: 'idle' });
   const [chartSqlTest,    setChartSqlTest]    = useState<{ status: 'idle' | 'testing' | 'ok' | 'error'; message?: string }>({ status: 'idle' });
 
@@ -273,8 +275,9 @@ export default function DashboardCreate() {
     mutationFn: createDashboard,
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['dashboards'] });
-      toast({ title: 'Dashboard criado!', description: `"${data.nome}" criado com sucesso.` });
-      navigate('/dashboards');
+      toast({ title: 'Dashboard criado!', description: `"${data.nome}" salvo com sucesso.` });
+      setConfirmOpen(false);
+      setPendingPayload(null);
     },
     onError: (err: Error) => toast({ variant: 'destructive', title: 'Erro ao criar', description: err.message }),
   });
@@ -284,8 +287,9 @@ export default function DashboardCreate() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['dashboards'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard', id] });
-      toast({ title: 'Dashboard atualizado!', description: `"${data.nome}" salvo com sucesso.` });
-      navigate('/dashboards');
+      toast({ title: 'Dashboard salvo!', description: `"${data.nome}" atualizado com sucesso.` });
+      setConfirmOpen(false);
+      setPendingPayload(null);
     },
     onError: (err: Error) => toast({ variant: 'destructive', title: 'Erro ao salvar', description: err.message }),
   });
@@ -299,8 +303,13 @@ export default function DashboardCreate() {
       if (errs.sql_query) setActiveTab('sql');
       return;
     }
-    const payload = buildPayload();
-    isEdit ? updateMutation.mutate(payload) : createMutation.mutate(payload);
+    setPendingPayload(buildPayload());
+    setConfirmOpen(true);
+  };
+
+  const handleConfirmSave = () => {
+    if (!pendingPayload) return;
+    isEdit ? updateMutation.mutate(pendingPayload) : createMutation.mutate(pendingPayload);
   };
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
@@ -858,16 +867,44 @@ export default function DashboardCreate() {
               Cancelar
             </Button>
             <Button type="submit" disabled={isSaving} className="gap-2 min-w-[100px]">
-              {isSaving ? (
-                <><svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Salvando...</>
-              ) : (
-                <><Save className="h-4 w-4" />Salvar</>
-              )}
+              <Save className="h-4 w-4" />Salvar
             </Button>
           </div>
 
         </form>
       </div>
+
+      {/* ── modal de confirmação ───────────────────────────────────────── */}
+      {confirmOpen && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 50,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          backgroundColor: 'rgba(0,0,0,0.4)',
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: '0.75rem', padding: '1.75rem',
+            width: '100%', maxWidth: '420px', boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+          }}>
+            <h2 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>
+              Confirmar salvamento
+            </h2>
+            <p style={{ fontSize: '0.9rem', color: '#6b7280', marginBottom: '1.5rem' }}>
+              Deseja salvar as alterações em <strong>"{nome}"</strong>?
+            </p>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <Button type="button" variant="outline" disabled={isSaving} onClick={() => { setConfirmOpen(false); setPendingPayload(null); }}>
+                Cancelar
+              </Button>
+              <Button type="button" disabled={isSaving} className="gap-2" onClick={handleConfirmSave}>
+                {isSaving
+                  ? <><svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Salvando...</>
+                  : <><Save className="h-4 w-4" />Sim, salvar</>}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </AppLayout>
   );
 }
