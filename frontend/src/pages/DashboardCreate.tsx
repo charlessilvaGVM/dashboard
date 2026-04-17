@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Save, Database, SlidersHorizontal, Plus, RefreshCw, Trash2, BarChart2, TrendingUp, AreaChart, PieChart, Donut, Ban, Link2, MousePointerClick, FlaskConical, CheckCircle2, XCircle } from 'lucide-react';
+import { ArrowLeft, Save, Database, SlidersHorizontal, Plus, RefreshCw, Trash2, BarChart2, TrendingUp, AreaChart, PieChart, Donut, Ban, Link2, MousePointerClick, FlaskConical, CheckCircle2, XCircle, Info } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import AttachmentsCard from '@/components/AttachmentsCard';
 import { Button } from '@/components/ui/button';
@@ -138,6 +138,7 @@ export default function DashboardCreate() {
   const [paramRows,       setParamRows]       = useState<ParamRow[]>([]);
   const [linkRows,        setLinkRows]        = useState<LinkRow[]>([]);
   const [actionRows,      setActionRows]      = useState<ActionRow[]>([]);
+  const [hintRows,        setHintRows]        = useState<{ _id: string; col: string; text: string }[]>([]);
   const [errors,          setErrors]          = useState<FormErrors>({});
   const [touched,         setTouched]         = useState(false);
   const [sqlTest,         setSqlTest]         = useState<{ status: 'idle' | 'testing' | 'ok' | 'error'; message?: string }>({ status: 'idle' });
@@ -173,6 +174,11 @@ export default function DashboardCreate() {
       );
       setActionRows(
         (existing.actions || []).map(a => ({ ...a, _id: Math.random().toString(36).slice(2) }))
+      );
+      setHintRows(
+        Object.entries(existing.column_hints || {}).map(([col, text]) => ({
+          _id: Math.random().toString(36).slice(2), col, text,
+        }))
       );
     }
   }, [existing]);
@@ -253,6 +259,12 @@ export default function DashboardCreate() {
     setLinkRows(prev => prev.map(l => l._id !== _id ? l : { ...l, [field]: value }));
   };
 
+  // ── hint helpers ────────────────────────────────────────────────────────
+  const addHint    = () => setHintRows(prev => [...prev, { _id: Math.random().toString(36).slice(2), col: '', text: '' }]);
+  const removeHint = (_id: string) => setHintRows(prev => prev.filter(h => h._id !== _id));
+  const updateHint = (_id: string, field: 'col' | 'text', value: string) =>
+    setHintRows(prev => prev.map(h => h._id !== _id ? h : { ...h, [field]: value }));
+
   // ── action helpers ──────────────────────────────────────────────────────
   const addAction = () => {
     setActionRows(prev => [...prev, { _id: Math.random().toString(36).slice(2), label: '', sourceColumn: '', targetDashboardId: 0, targetParam: '' }]);
@@ -276,6 +288,9 @@ export default function DashboardCreate() {
     actions: actionRows
       .filter(a => a.label.trim() && a.sourceColumn.trim() && a.targetDashboardId && a.targetParam.trim())
       .map(({ _id: _, ...a }) => a) as DashboardAction[],
+    column_hints: hintRows.filter(h => h.col.trim() && h.text.trim()).length > 0
+      ? Object.fromEntries(hintRows.filter(h => h.col.trim() && h.text.trim()).map(h => [h.col.trim(), h.text.trim()]))
+      : null,
   });
 
   const createMutation = useMutation({
@@ -902,6 +917,77 @@ export default function DashboardCreate() {
                           <td className="px-2 py-2 text-center">
                             <button
                               type="button" onClick={() => removeAction(a._id)}
+                              className="text-muted-foreground hover:text-destructive transition-colors"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* ── hints das colunas ──────────────────────────────────────── */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Info className="h-4 w-4 text-primary" />
+                    Hints das Colunas
+                  </CardTitle>
+                  <CardDescription className="mt-1">
+                    Texto explicativo exibido ao passar o mouse sobre o cabeçalho de uma coluna na tabela.
+                  </CardDescription>
+                </div>
+                <Button type="button" variant="outline" size="sm" className="gap-2" onClick={addHint}>
+                  <Plus className="h-4 w-4" />
+                  Adicionar Hint
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {hintRows.length === 0 && (
+                <p className="text-sm text-muted-foreground">Nenhum hint configurado.</p>
+              )}
+              {hintRows.length > 0 && (
+                <div className="rounded-lg border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-muted/40 border-b">
+                        <th className="text-left px-3 py-2.5 font-medium text-muted-foreground w-48">Nome da Coluna</th>
+                        <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Texto do Hint</th>
+                        <th className="w-10" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {hintRows.map((h, idx) => (
+                        <tr key={h._id} className={`border-b last:border-0 ${idx % 2 === 1 ? 'bg-muted/10' : ''}`}>
+                          <td className="px-3 py-2">
+                            <input
+                              type="text"
+                              value={h.col}
+                              placeholder="ex: valor_total"
+                              onChange={e => updateHint(h._id, 'col', e.target.value)}
+                              style={{ ...inputStyle, fontFamily: 'monospace', height: '2.1rem' }}
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="text"
+                              value={h.text}
+                              placeholder="ex: Soma dos valores faturados no período"
+                              onChange={e => updateHint(h._id, 'text', e.target.value)}
+                              style={{ ...inputStyle, height: '2.1rem' }}
+                            />
+                          </td>
+                          <td className="px-2 py-2 text-center">
+                            <button
+                              type="button" onClick={() => removeHint(h._id)}
                               className="text-muted-foreground hover:text-destructive transition-colors"
                             >
                               <Trash2 className="h-4 w-4" />

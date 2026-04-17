@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS dashboards (
 
 -- Adicionar coluna params caso a tabela já existia antes desta versão
 ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS params JSON DEFAULT NULL;
+ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS column_hints JSON DEFAULT NULL;
 
 -- -----------------------------------------------------------------------------
 -- 3. TABELA DE PERMISSÕES (usuário x dashboard)

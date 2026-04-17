@@ -100,6 +100,7 @@ export interface Dashboard {
   links: DashboardLink[] | null;
   actions: DashboardAction[] | null;
   chart_config: ChartConfig | null;
+  column_hints: Record<string, string> | null;
   created_at: string;
   updated_at: string;
 }
@@ -216,10 +217,10 @@ export async function getDashboards(): Promise<Dashboard[]> {
 export async function getDashboard(id: number): Promise<Dashboard> {
   return request<Dashboard>('GET', `/dashboards/${id}`);
 }
-export async function createDashboard(data: { nome: string; descricao?: string; sql_query: string; chart_sql_query?: string | null; params?: DashboardParam[]; chart_type?: ChartType; links?: DashboardLink[]; actions?: DashboardAction[] }): Promise<Dashboard> {
+export async function createDashboard(data: { nome: string; descricao?: string; sql_query: string; chart_sql_query?: string | null; params?: DashboardParam[]; chart_type?: ChartType; links?: DashboardLink[]; actions?: DashboardAction[]; column_hints?: Record<string, string> | null }): Promise<Dashboard> {
   return request<Dashboard>('POST', '/dashboards', data);
 }
-export async function updateDashboard(id: number, data: { nome: string; descricao?: string; sql_query: string; chart_sql_query?: string | null; params?: DashboardParam[]; chart_type?: ChartType; links?: DashboardLink[]; actions?: DashboardAction[] }): Promise<Dashboard> {
+export async function updateDashboard(id: number, data: { nome: string; descricao?: string; sql_query: string; chart_sql_query?: string | null; params?: DashboardParam[]; chart_type?: ChartType; links?: DashboardLink[]; actions?: DashboardAction[]; column_hints?: Record<string, string> | null }): Promise<Dashboard> {
   return request<Dashboard>('PUT', `/dashboards/${id}`, data);
 }
 export async function deleteDashboard(id: number): Promise<{ message: string }> {

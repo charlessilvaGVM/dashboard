@@ -272,6 +272,9 @@ export default function DashboardView() {
   // list of navigation action buttons
   const actionList = useMemo<DashboardAction[]>(() => dashboard?.actions || [], [dashboard?.actions]);
 
+  // map colName → hint text
+  const hintMap = useMemo<Record<string, string>>(() => dashboard?.column_hints || {}, [dashboard?.column_hints]);
+
   // ── drill-down opener ─────────────────────────────────────────────────────
   const openDrill = useCallback((link: DashboardLink, cellValue: string) => {
     const fixedParams: Record<string, string> = { [link.paramName]: cellValue };
@@ -873,6 +876,7 @@ export default function DashboardView() {
                         {queryResult.columns.map(col => {
                           const isNum    = numericCols.has(col.name);
                           const hasLink  = linkMap.has(col.name);
+                          const hint     = hintMap[col.name];
                           return (
                             <th
                               key={col.name}
@@ -882,6 +886,17 @@ export default function DashboardView() {
                             >
                               <div className={`flex items-center gap-1.5 ${isNum ? 'flex-row-reverse justify-start' : ''}`}>
                                 <span>{col.name}</span>
+                                {hint && (
+                                  <span
+                                    title={hint}
+                                    onClick={e => e.stopPropagation()}
+                                    style={{ cursor: 'help', display: 'inline-flex', alignItems: 'center' }}
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" style={{ width: '0.8rem', height: '0.8rem', color: '#6b7280', flexShrink: 0 }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                      <circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>
+                                    </svg>
+                                  </span>
+                                )}
                                 {hasLink && (
                                   <span title="Coluna com drill-down"><Link2 style={{ width: '0.75rem', height: '0.75rem', color: '#2563eb', flexShrink: 0 }} /></span>
                                 )}
