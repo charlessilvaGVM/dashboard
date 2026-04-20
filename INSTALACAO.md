@@ -173,6 +173,54 @@ Se outros PCs da rede precisarem acessar o sistema:
 
 ---
 
+## Atualizar o sistema via Git
+
+Quando houver uma nova versão disponível no GitHub, execute os comandos abaixo **dentro da pasta raiz do projeto** (ex: `D:\GVM\GVMDASHBOARD`):
+
+### Passo 1 — Baixar as atualizações
+
+```bash
+git pull origin master
+```
+
+> Se aparecer erro de conflito no pull:
+> ```bash
+> git stash
+> git pull origin master
+> git stash pop
+> ```
+
+### Passo 2 — Atualizar dependências (somente se necessário)
+
+Só é preciso quando o `package.json` foi alterado (novos pacotes adicionados):
+
+```bash
+cd backend
+npm install
+cd ../frontend
+npm install
+cd ..
+```
+
+### Passo 3 — Reiniciar os serviços
+
+```bash
+pm2 restart gvm-backend --update-env
+pm2 restart gvm-frontend
+```
+
+> Use `--update-env` sempre que o arquivo `.env` tiver sido alterado.
+
+### Passo 4 — Confirmar que está rodando
+
+```bash
+pm2 status
+```
+
+Ambos `gvm-backend` e `gvm-frontend` devem aparecer como `online`.
+
+---
+
 ## Comandos úteis do dia a dia
 
 ```bash
@@ -183,10 +231,13 @@ pm2 list
 pm2 restart all
 
 # Reiniciar só o backend (após mudar o .env, por exemplo)
-pm2 restart gvm-backend
+pm2 restart gvm-backend --update-env
 
 # Ver logs em tempo real
 pm2 logs
+
+# Ver últimas linhas do log do backend
+pm2 logs gvm-backend --lines 50 --nostream
 
 # Parar tudo
 pm2 stop all
