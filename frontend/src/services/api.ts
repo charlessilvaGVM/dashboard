@@ -89,6 +89,13 @@ export interface DashboardAction {
   targetParam: string;       // @param no dashboard destino
 }
 
+export interface ExtraChart {
+  title: string;
+  sql_query: string;
+  chart_type: ChartType;
+  chart_config: ChartConfig | null;
+}
+
 export interface Dashboard {
   id: number;
   nome: string;
@@ -103,6 +110,7 @@ export interface Dashboard {
   column_hints: Record<string, string> | null;
   refresh_interval: number | null;
   connection_id: number | null;
+  extra_charts: ExtraChart[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -219,11 +227,14 @@ export async function getDashboards(): Promise<Dashboard[]> {
 export async function getDashboard(id: number): Promise<Dashboard> {
   return request<Dashboard>('GET', `/dashboards/${id}`);
 }
-export async function createDashboard(data: { nome: string; descricao?: string; sql_query: string; chart_sql_query?: string | null; params?: DashboardParam[]; chart_type?: ChartType; links?: DashboardLink[]; actions?: DashboardAction[]; column_hints?: Record<string, string> | null; refresh_interval?: number; connection_id?: number | null }): Promise<Dashboard> {
+export async function createDashboard(data: { nome: string; descricao?: string; sql_query: string; chart_sql_query?: string | null; params?: DashboardParam[]; chart_type?: ChartType; links?: DashboardLink[]; actions?: DashboardAction[]; column_hints?: Record<string, string> | null; refresh_interval?: number; connection_id?: number | null; extra_charts?: ExtraChart[] | null }): Promise<Dashboard> {
   return request<Dashboard>('POST', '/dashboards', data);
 }
-export async function updateDashboard(id: number, data: { nome: string; descricao?: string; sql_query: string; chart_sql_query?: string | null; params?: DashboardParam[]; chart_type?: ChartType; links?: DashboardLink[]; actions?: DashboardAction[]; column_hints?: Record<string, string> | null; refresh_interval?: number; connection_id?: number | null }): Promise<Dashboard> {
+export async function updateDashboard(id: number, data: { nome: string; descricao?: string; sql_query: string; chart_sql_query?: string | null; params?: DashboardParam[]; chart_type?: ChartType; links?: DashboardLink[]; actions?: DashboardAction[]; column_hints?: Record<string, string> | null; refresh_interval?: number; connection_id?: number | null; extra_charts?: ExtraChart[] | null }): Promise<Dashboard> {
   return request<Dashboard>('PUT', `/dashboards/${id}`, data);
+}
+export async function saveExtraChartConfig(id: number, extra_charts: ExtraChart[]): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>('PATCH', `/dashboards/${id}/extra-chart-config`, { extra_charts });
 }
 export async function deleteDashboard(id: number): Promise<{ message: string }> {
   return request<{ message: string }>('DELETE', `/dashboards/${id}`);

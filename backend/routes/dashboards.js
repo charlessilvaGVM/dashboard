@@ -32,6 +32,11 @@ function parseRow(row) {
       try { row.column_hints = JSON.parse(row.column_hints); } catch { row.column_hints = null; }
     }
   }
+  if (row.extra_charts !== undefined && row.extra_charts !== null) {
+    if (typeof row.extra_charts === 'string') {
+      try { row.extra_charts = JSON.parse(row.extra_charts); } catch { row.extra_charts = null; }
+    }
+  }
   return row;
 }
 
@@ -138,6 +143,7 @@ async function ensureTable() {
     [`ALTER TABLE dashboards ADD COLUMN column_hints JSON DEFAULT NULL`, 'column_hints column added'],
     [`ALTER TABLE dashboards ADD COLUMN refresh_interval INT DEFAULT 0`, 'refresh_interval column added'],
     [`ALTER TABLE dashboards ADD COLUMN connection_id INT DEFAULT NULL`, 'connection_id column added'],
+    [`ALTER TABLE dashboards ADD COLUMN extra_charts JSON DEFAULT NULL`, 'extra_charts column added'],
   ];
   for (const [sql, msg] of migrations) {
     try {
@@ -159,11 +165,11 @@ router.get('/', async (req, res) => {
     let rows;
     if (req.user?.nivel === 'admin') {
       [rows] = await db.query(
-        'SELECT id, nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, chart_config, column_hints, refresh_interval, connection_id, created_at, updated_at FROM dashboards ORDER BY updated_at DESC'
+        'SELECT id, nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, chart_config, column_hints, refresh_interval, connection_id, extra_charts, created_at, updated_at FROM dashboards ORDER BY updated_at DESC'
       );
     } else {
       [rows] = await db.query(
-        `SELECT d.id, d.nome, d.descricao, d.sql_query, d.chart_sql_query, d.params, d.chart_type, d.links, d.actions, d.chart_config, d.column_hints, d.refresh_interval, d.connection_id, d.created_at, d.updated_at
+        `SELECT d.id, d.nome, d.descricao, d.sql_query, d.chart_sql_query, d.params, d.chart_type, d.links, d.actions, d.chart_config, d.column_hints, d.refresh_interval, d.connection_id, d.extra_charts, d.created_at, d.updated_at
          FROM dashboards d
          INNER JOIN dashboard_permissions dp ON dp.dashboard_id = d.id AND dp.user_id = ?
          ORDER BY d.updated_at DESC`,
@@ -181,7 +187,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', validateId, async (req, res) => {
   try {
     const [rows] = await db.query(
-      'SELECT id, nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, chart_config, column_hints, refresh_interval, connection_id, created_at, updated_at FROM dashboards WHERE id = ?',
+      'SELECT id, nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, chart_config, column_hints, refresh_interval, connection_id, extra_charts, created_at, updated_at FROM dashboards WHERE id = ?',
       [req.params.id]
     );
     if (!rows || rows.length === 0) return res.status(404).json({ error: 'Dashboard not found' });
@@ -206,7 +212,7 @@ router.get('/:id', validateId, async (req, res) => {
 // POST / — A1: admin only
 router.post('/', adminOnly, async (req, res) => {
   try {
-    const { nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, column_hints, refresh_interval, connection_id } = req.body;
+    const { nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, column_hints, refresh_interval, connection_id, extra_charts } = req.body;
 
     // M7/N2/N7 — Validar campos obrigatórios, tipos e tamanhos
     if (!nome || !sql_query) return res.status(400).json({ error: 'Nome e sql_query são obrigatórios' });
@@ -233,13 +239,15 @@ router.post('/', adminOnly, async (req, res) => {
       ? JSON.stringify(column_hints) : null;
     const refreshVal = Math.max(0, parseInt(refresh_interval) || 0);
     const connId = connection_id ? (parseInt(connection_id) || null) : null;
+    const extraChartsVal = extra_charts && Array.isArray(extra_charts) && extra_charts.length > 0
+      ? JSON.stringify(extra_charts) : null;
 
     const [result] = await db.query(
-      'INSERT INTO dashboards (nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, column_hints, refresh_interval, connection_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [nome, descricaoVal, sql_query, chartSql, serializeParams(params), chart_type || 'bar', serializeLinks(validatedLinks), serializeActions(validatedActions), hintsVal, refreshVal, connId]
+      'INSERT INTO dashboards (nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, column_hints, refresh_interval, connection_id, extra_charts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [nome, descricaoVal, sql_query, chartSql, serializeParams(params), chart_type || 'bar', serializeLinks(validatedLinks), serializeActions(validatedActions), hintsVal, refreshVal, connId, extraChartsVal]
     );
     const [rows] = await db.query(
-      'SELECT id, nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, chart_config, column_hints, refresh_interval, connection_id, created_at, updated_at FROM dashboards WHERE id = ?',
+      'SELECT id, nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, chart_config, column_hints, refresh_interval, connection_id, extra_charts, created_at, updated_at FROM dashboards WHERE id = ?',
       [result.insertId]
     );
     await auditLog(req, 'create', 'dashboard', result.insertId, nome);
@@ -253,7 +261,7 @@ router.post('/', adminOnly, async (req, res) => {
 // PUT /:id — A1: admin only
 router.put('/:id', adminOnly, validateId, async (req, res) => {
   try {
-    const { nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, column_hints, refresh_interval, connection_id } = req.body;
+    const { nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, column_hints, refresh_interval, connection_id, extra_charts } = req.body;
 
     // M7/N2/N7 — Validar campos obrigatórios, tipos e tamanhos
     if (!nome || !sql_query) return res.status(400).json({ error: 'Nome e sql_query são obrigatórios' });
@@ -280,15 +288,17 @@ router.put('/:id', adminOnly, validateId, async (req, res) => {
       ? JSON.stringify(column_hints) : null;
     const refreshVal = Math.max(0, parseInt(refresh_interval) || 0);
     const connId = connection_id ? (parseInt(connection_id) || null) : null;
+    const extraChartsVal = extra_charts && Array.isArray(extra_charts) && extra_charts.length > 0
+      ? JSON.stringify(extra_charts) : null;
 
     const [result] = await db.query(
-      'UPDATE dashboards SET nome = ?, descricao = ?, sql_query = ?, chart_sql_query = ?, params = ?, chart_type = ?, links = ?, actions = ?, column_hints = ?, refresh_interval = ?, connection_id = ? WHERE id = ?',
-      [nome, descricaoVal, sql_query, chartSql, serializeParams(params), chart_type || 'bar', serializeLinks(validatedLinks), serializeActions(validatedActions), hintsVal, refreshVal, connId, req.params.id]
+      'UPDATE dashboards SET nome = ?, descricao = ?, sql_query = ?, chart_sql_query = ?, params = ?, chart_type = ?, links = ?, actions = ?, column_hints = ?, refresh_interval = ?, connection_id = ?, extra_charts = ? WHERE id = ?',
+      [nome, descricaoVal, sql_query, chartSql, serializeParams(params), chart_type || 'bar', serializeLinks(validatedLinks), serializeActions(validatedActions), hintsVal, refreshVal, connId, extraChartsVal, req.params.id]
     );
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Dashboard not found' });
 
     const [rows] = await db.query(
-      'SELECT id, nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, chart_config, column_hints, refresh_interval, connection_id, created_at, updated_at FROM dashboards WHERE id = ?',
+      'SELECT id, nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, chart_config, column_hints, refresh_interval, connection_id, extra_charts, created_at, updated_at FROM dashboards WHERE id = ?',
       [req.params.id]
     );
     await auditLog(req, 'update', 'dashboard', Number(req.params.id), nome);
@@ -324,6 +334,20 @@ router.patch('/:id/chart-config', adminOnly, validateId, async (req, res) => {
   } catch (err) {
     console.error('[dashboards/PATCH /:id/chart-config]', err);
     res.status(500).json({ error: 'Erro interno ao salvar configuração do gráfico' });
+  }
+});
+
+// PATCH /:id/extra-chart-config — save extra charts config (type + columns) from DashboardView
+router.patch('/:id/extra-chart-config', adminOnly, validateId, async (req, res) => {
+  try {
+    const { extra_charts } = req.body;
+    const value = extra_charts && Array.isArray(extra_charts) ? JSON.stringify(extra_charts) : null;
+    const [result] = await db.query('UPDATE dashboards SET extra_charts = ? WHERE id = ?', [value, req.params.id]);
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Dashboard not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[dashboards/PATCH extra-chart-config]', err);
+    res.status(500).json({ error: 'Erro interno' });
   }
 });
 

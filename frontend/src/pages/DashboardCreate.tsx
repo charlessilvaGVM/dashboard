@@ -10,7 +10,7 @@ import {
   createDashboard, updateDashboard, getDashboard, getDashboards, testQuery,
   getConnections,
   extractSqlParams, guessParamType, getParamDefault,
-  type DashboardParam, type ParamType, type ChartType, type DashboardLink, type DashboardAction,
+  type DashboardParam, type ParamType, type ChartType, type DashboardLink, type DashboardAction, type ExtraChart,
 } from '@/services/api';
 import { toast } from '@/hooks/use-toast';
 
@@ -151,6 +151,17 @@ export default function DashboardCreate() {
   const [hintRows,         setHintRows]        = useState<{ _id: string; col: string; text: string }[]>([]);
   const [refreshInterval,  setRefreshInterval] = useState('0');
   const [connectionId,     setConnectionId]    = useState<string>('');
+
+  interface ExtraChartRow {
+    _id: string; enabled: boolean; title: string;
+    sql: string; chartType: ChartType;
+    sqlTest: { status: 'idle' | 'testing' | 'ok' | 'error'; message?: string };
+  }
+  const makeExtraRow = (): ExtraChartRow => ({
+    _id: Math.random().toString(36).slice(2), enabled: false, title: '',
+    sql: '', chartType: 'bar', sqlTest: { status: 'idle' },
+  });
+  const [extraChartRows, setExtraChartRows] = useState<ExtraChartRow[]>([makeExtraRow(), makeExtraRow(), makeExtraRow()]);
   const [errors,          setErrors]          = useState<FormErrors>({});
   const [touched,         setTouched]         = useState(false);
   const [confirmOpen,     setConfirmOpen]     = useState(false);
@@ -192,6 +203,13 @@ export default function DashboardCreate() {
       })));
       setRefreshInterval(String(existing.refresh_interval ?? 0));
       setConnectionId(existing.connection_id ? String(existing.connection_id) : '');
+      const loaded = (existing.extra_charts || []).slice(0, 3);
+      setExtraChartRows([0, 1, 2].map(i => {
+        const c = loaded[i];
+        return c
+          ? { _id: Math.random().toString(36).slice(2), enabled: true, title: c.title || '', sql: c.sql_query, chartType: c.chart_type, sqlTest: { status: 'idle' } }
+          : makeExtraRow();
+      }));
     }
   }, [existing]);
 
@@ -281,6 +299,9 @@ export default function DashboardCreate() {
       : null,
     refresh_interval: Math.max(0, parseInt(refreshInterval) || 0),
     connection_id: connectionId ? parseInt(connectionId) || null : null,
+    extra_charts: extraChartRows
+      .filter(c => c.enabled && c.sql.trim())
+      .map(c => ({ title: c.title.trim(), sql_query: c.sql.trim(), chart_type: c.chartType, chart_config: null }) as ExtraChart),
   });
 
   const createMutation = useMutation({
@@ -688,6 +709,89 @@ export default function DashboardCreate() {
                     </CardContent>
                   )}
                 </Card>
+                {/* ── Gráficos extras (2, 3, 4) ── */}
+                {extraChartRows.map((ec, idx) => (
+                  <Card key={ec._id}>
+                    <CardHeader>
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div>
+                          <CardTitle className="flex items-center gap-2 text-base">
+                            <BarChart2 className="h-4 w-4 text-primary" />
+                            Gráfico {idx + 2}
+                            <span style={{ fontSize: '0.7rem', fontWeight: 400, color: '#6b7280', background: '#f3f4f6', padding: '0.1rem 0.45rem', borderRadius: '0.3rem' }}>opcional</span>
+                          </CardTitle>
+                          <CardDescription className="mt-1">SQL independente para um gráfico adicional. Usa os mesmos @params do dashboard.</CardDescription>
+                        </div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', userSelect: 'none', fontSize: '0.875rem', fontWeight: 500 }}>
+                          <input type="checkbox" checked={ec.enabled}
+                            onChange={e => setExtraChartRows(rows => rows.map((r, i) => i === idx ? { ...r, enabled: e.target.checked, sqlTest: { status: 'idle' } } : r))}
+                            style={{ width: '1rem', height: '1rem', accentColor: '#2563eb', cursor: 'pointer' }} />
+                          Ativar Gráfico {idx + 2}
+                        </label>
+                      </div>
+                    </CardHeader>
+                    {ec.enabled && (
+                      <CardContent className="space-y-4">
+                        {/* title */}
+                        <div className="space-y-1">
+                          <label style={{ fontSize: '0.8125rem', fontWeight: 500 }}>Título (opcional)</label>
+                          <input type="text" value={ec.title} placeholder={`Ex: Distribuição por categoria`}
+                            onChange={e => setExtraChartRows(rows => rows.map((r, i) => i === idx ? { ...r, title: e.target.value } : r))}
+                            style={{ ...inputStyle, height: '2.25rem' }} />
+                        </div>
+                        {/* chart type */}
+                        <div className="space-y-1">
+                          <label style={{ fontSize: '0.8125rem', fontWeight: 500 }}>Tipo de gráfico</label>
+                          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                            {CHART_OPTIONS.map(opt => (
+                              <button key={opt.value} type="button" onClick={() => setExtraChartRows(rows => rows.map((r, i) => i === idx ? { ...r, chartType: opt.value } : r))}
+                                style={{
+                                  display: 'flex', alignItems: 'center', gap: '0.3rem',
+                                  padding: '0.3rem 0.7rem', borderRadius: '0.5rem', cursor: 'pointer',
+                                  border: `2px solid ${ec.chartType === opt.value ? '#2563eb' : '#e5e7eb'}`,
+                                  background: ec.chartType === opt.value ? '#eff6ff' : '#fff',
+                                  fontSize: '0.75rem', fontWeight: ec.chartType === opt.value ? 600 : 400,
+                                  color: ec.chartType === opt.value ? '#2563eb' : '#6b7280',
+                                }}>
+                                {opt.icon}{opt.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        {/* SQL */}
+                        <div className="space-y-1.5">
+                          <label style={{ fontSize: '0.8125rem', fontWeight: 500 }}>SQL <span style={{ color: '#ef4444' }}>*</span></label>
+                          <textarea rows={6}
+                            placeholder={`SELECT situacao, SUM(quant) as Total FROM tabela WHERE setor = @setor GROUP BY situacao`}
+                            value={ec.sql}
+                            onChange={e => setExtraChartRows(rows => rows.map((r, i) => i === idx ? { ...r, sql: e.target.value, sqlTest: { status: 'idle' } } : r))}
+                            style={{ ...inputStyle, padding: '0.75rem', resize: 'vertical', fontFamily: 'monospace', fontSize: '0.875rem', backgroundColor: '#020617', color: '#4ade80', borderColor: '#374151' }} />
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                            <button type="button"
+                              disabled={ec.sqlTest.status === 'testing' || !ec.sql.trim()}
+                              onClick={async () => {
+                                setExtraChartRows(rows => rows.map((r, i) => i === idx ? { ...r, sqlTest: { status: 'testing' } } : r));
+                                try {
+                                  const res = await testQuery(ec.sql.trim());
+                                  setExtraChartRows(rows => rows.map((r, i) => i === idx ? { ...r, sqlTest: res.valid ? { status: 'ok', message: 'Sintaxe válida' } : { status: 'error', message: res.error || 'Erro' } } : r));
+                                } catch (e: unknown) {
+                                  setExtraChartRows(rows => rows.map((r, i) => i === idx ? { ...r, sqlTest: { status: 'error', message: e instanceof Error ? e.message : 'Erro' } } : r));
+                                }
+                              }}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', padding: '0.35rem 0.85rem', borderRadius: '0.375rem', fontSize: '0.8125rem', fontWeight: 500, cursor: ec.sqlTest.status === 'testing' || !ec.sql.trim() ? 'not-allowed' : 'pointer', border: '1px solid #d1d5db', background: '#fff', color: '#374151', opacity: !ec.sql.trim() ? 0.5 : 1 }}>
+                              {ec.sqlTest.status === 'testing'
+                                ? <svg className="animate-spin" style={{ width: '0.875rem', height: '0.875rem' }} viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                                : <FlaskConical style={{ width: '0.875rem', height: '0.875rem' }} />}
+                              {ec.sqlTest.status === 'testing' ? 'Testando...' : 'Testar SQL'}
+                            </button>
+                            {ec.sqlTest.status === 'ok'    && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', color: '#16a34a', fontSize: '0.8125rem', fontWeight: 500 }}><CheckCircle2 style={{ width: '0.875rem', height: '0.875rem' }} />{ec.sqlTest.message}</span>}
+                            {ec.sqlTest.status === 'error' && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', color: '#dc2626', fontSize: '0.8125rem', fontWeight: 500 }}><XCircle style={{ width: '0.875rem', height: '0.875rem' }} />{ec.sqlTest.message}</span>}
+                          </div>
+                        </div>
+                      </CardContent>
+                    )}
+                  </Card>
+                ))}
               </>}
 
               {/* ── aba 3: Drill-down & Hints ─────────────────────────── */}

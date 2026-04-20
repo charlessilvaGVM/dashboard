@@ -24,10 +24,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
-  getDashboard, executeQuery, getConfig, isAdmin, saveChartConfig,
+  getDashboard, executeQuery, getConfig, isAdmin, saveChartConfig, saveExtraChartConfig,
   extractSqlParams, getParamDefault,
   type QueryResult, type DashboardParam, type ChartType,
-  type DashboardLink, type DashboardAction, type ChartConfig,
+  type DashboardLink, type DashboardAction, type ChartConfig, type ExtraChart,
 } from '@/services/api';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
@@ -116,6 +116,187 @@ function StatCard({ icon, label, value, color = 'text-primary' }: {
   );
 }
 
+// ── ChartBlock — reusable chart for extra charts (2, 3, 4) ───────────────────
+interface ChartBlockProps {
+  result: QueryResult;
+  initialType: ChartType;
+  initialConfig: ChartConfig | null;
+  title: string;
+  admin: boolean;
+  onSave: (type: ChartType, config: ChartConfig | null) => Promise<void>;
+}
+
+function ChartBlock({ result, initialType, initialConfig, title, admin, onSave }: ChartBlockProps) {
+  const [chartType,   setChartType]   = useState<ChartType>(initialType);
+  const [chartConfig, setChartConfig] = useState<ChartConfig | null>(initialConfig);
+  const [panelOpen,   setPanelOpen]   = useState(false);
+  const [saving,      setSaving]      = useState(false);
+
+  const cols  = result.columns.map(c => c.name);
+  const first = result.rows[0] ?? {};
+
+  const chartData = useMemo(() => {
+    if (!result || result.rows.length === 0) return null;
+    let labelCol: string, numCols: string[];
+    if (chartConfig?.labelCol && chartConfig.valueCols?.length) {
+      labelCol = chartConfig.labelCol;
+      numCols  = chartConfig.valueCols.filter(c => cols.includes(c));
+    } else {
+      const text = cols.filter(c => !isNumericVal(first[c]));
+      const nums = cols.filter(c =>  isNumericVal(first[c]));
+      if (!text.length || !nums.length) return null;
+      labelCol = text[0]; numCols = nums.slice(0, 5);
+    }
+    if (!numCols.length || !labelCol) return null;
+    return {
+      data: result.rows.slice(0, 50).map(row => {
+        const pt: Record<string, unknown> = { [labelCol]: formatValue(row[labelCol]) };
+        numCols.forEach(nc => { pt[nc] = Number(row[nc]); });
+        return pt;
+      }),
+      labelCol, numCols,
+    };
+  }, [result, chartConfig, cols, first]);
+
+  const curLabel  = chartConfig?.labelCol  ?? cols.find(c => !isNumericVal(first[c])) ?? '';
+  const curValues = chartConfig?.valueCols ?? cols.filter(c => isNumericVal(first[c])).slice(0, 5);
+
+  const TYPES = [
+    { v: 'bar' as ChartType,   label: 'Barras' },
+    { v: 'line' as ChartType,  label: 'Linha'  },
+    { v: 'area' as ChartType,  label: 'Área'   },
+    { v: 'pie' as ChartType,   label: 'Pizza'  },
+    { v: 'donut' as ChartType, label: 'Rosca'  },
+  ];
+
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader className="pb-0 pt-4 px-5">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <CardTitle className="text-sm font-semibold">{title || 'Gráfico'}</CardTitle>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button onClick={() => setPanelOpen(v => !v)}
+              style={{ display:'flex',alignItems:'center',gap:'0.3rem',padding:'0.28rem 0.6rem',borderRadius:'0.35rem',fontSize:'0.72rem',fontWeight:500,cursor:'pointer',border:'1px solid #e5e7eb',background:panelOpen?'#eff6ff':'hsl(var(--background))',color:panelOpen?'#2563eb':'#6b7280' }}>
+              <Settings2 style={{ width:'0.85rem',height:'0.85rem' }} />Colunas
+            </button>
+            <div className="flex items-center gap-1 p-1 bg-muted/60 rounded-lg border">
+              {TYPES.map(t => (
+                <button key={t.v} onClick={() => setChartType(t.v)}
+                  style={{ padding:'0.28rem 0.5rem',borderRadius:'0.35rem',fontSize:'0.7rem',fontWeight:500,cursor:'pointer',border:'none',background:chartType===t.v?'hsl(var(--background))':'transparent',color:chartType===t.v?'hsl(var(--foreground))':'#9ca3af',boxShadow:chartType===t.v?'0 1px 3px rgba(0,0,0,0.12)':'none' }}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </CardHeader>
+
+      {panelOpen && (
+        <div style={{ margin:'0 1.25rem 0.75rem',padding:'1rem',background:'hsl(var(--muted)/0.5)',border:'1px solid hsl(var(--border))',borderRadius:'0.5rem' }}>
+          <div style={{ display:'flex',gap:'1.5rem',flexWrap:'wrap',alignItems:'flex-start' }}>
+            <div style={{ minWidth:'180px' }}>
+              <p style={{ fontSize:'0.75rem',fontWeight:600,color:'hsl(var(--muted-foreground))',marginBottom:'0.375rem' }}>Coluna de categoria (eixo X)</p>
+              <select value={curLabel} onChange={e => setChartConfig({ labelCol: e.target.value, valueCols: curValues })}
+                style={{ width:'100%',height:'2rem',padding:'0 0.5rem',border:'1px solid hsl(var(--border))',borderRadius:'0.375rem',fontSize:'0.8125rem',background:'hsl(var(--background))',cursor:'pointer' }}>
+                <option value="">-- selecione --</option>
+                {cols.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div style={{ flex:1,minWidth:'220px' }}>
+              <p style={{ fontSize:'0.75rem',fontWeight:600,color:'hsl(var(--muted-foreground))',marginBottom:'0.375rem' }}>Colunas de valores (séries)</p>
+              <div style={{ display:'flex',flexWrap:'wrap',gap:'0.5rem' }}>
+                {cols.filter(c => c !== curLabel).map(c => {
+                  const checked = curValues.includes(c);
+                  return (
+                    <label key={c} style={{ display:'inline-flex',alignItems:'center',gap:'0.35rem',fontSize:'0.8rem',cursor:'pointer',padding:'0.2rem 0.5rem',borderRadius:'0.3rem',background:checked?'#eff6ff':'hsl(var(--muted))',border:`1px solid ${checked?'#2563eb':'hsl(var(--border))'}`,color:checked?'#1d4ed8':'hsl(var(--muted-foreground))' }}>
+                      <input type="checkbox" checked={checked}
+                        onChange={e => {
+                          const next = e.target.checked ? [...curValues, c] : curValues.filter(v => v !== c);
+                          setChartConfig({ labelCol: curLabel, valueCols: next });
+                        }}
+                        style={{ accentColor:'#2563eb',width:'0.8rem',height:'0.8rem' }} />
+                      {c}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+          <div style={{ display:'flex',gap:'0.5rem',marginTop:'0.875rem',alignItems:'center' }}>
+            {admin && (
+              <button onClick={async () => { setSaving(true); try { await onSave(chartType, { labelCol: curLabel, valueCols: curValues }); } finally { setSaving(false); } }}
+                disabled={saving || !curLabel || curValues.length === 0}
+                style={{ display:'inline-flex',alignItems:'center',gap:'0.3rem',padding:'0.3rem 0.75rem',borderRadius:'0.375rem',fontSize:'0.8rem',fontWeight:500,background:'#2563eb',color:'#fff',border:'none',cursor:'pointer',opacity:saving||!curLabel||curValues.length===0?0.6:1 }}>
+                <Save style={{ width:'0.8rem',height:'0.8rem' }} />
+                {saving ? 'Salvando...' : 'Salvar configuração'}
+              </button>
+            )}
+            <button onClick={() => setChartConfig(null)}
+              style={{ display:'inline-flex',alignItems:'center',gap:'0.3rem',padding:'0.3rem 0.75rem',borderRadius:'0.375rem',fontSize:'0.8rem',fontWeight:500,background:'hsl(var(--background))',color:'#64748b',border:'1px solid hsl(var(--border))',cursor:'pointer' }}>
+              <RotateCcw style={{ width:'0.8rem',height:'0.8rem' }} />Auto
+            </button>
+          </div>
+        </div>
+      )}
+
+      <CardContent className="px-2 pt-3 pb-2">
+        {!chartData && (
+          <div style={{ padding:'2rem',textAlign:'center',color:'#94a3b8',fontSize:'0.875rem' }}>
+            Selecione uma coluna de categoria e ao menos uma de valores.
+          </div>
+        )}
+        {chartData && (chartType === 'bar' || chartType === 'line' || chartType === 'area') && (
+          <ResponsiveContainer width="100%" height={280}>
+            {chartType === 'bar' ? (
+              <BarChart data={chartData.data} margin={{top:8,right:16,left:4,bottom:60}} barCategoryGap="30%">
+                <CartesianGrid strokeDasharray="4 4" stroke="#e5e7eb" vertical={false}/>
+                <XAxis dataKey={chartData.labelCol} tick={{fontSize:10,fill:'#6b7280'}} angle={-35} textAnchor="end" interval={0} height={60} axisLine={false} tickLine={false}/>
+                <YAxis tick={{fontSize:10,fill:'#6b7280'}} axisLine={false} tickLine={false} tickFormatter={(v:number)=>v>=1e6?`${(v/1e6).toFixed(1)}M`:v>=1e3?`${(v/1e3).toFixed(0)}k`:String(v)}/>
+                <Tooltip contentStyle={{background:'hsl(var(--background))',border:'1px solid hsl(var(--border))',borderRadius:'8px',fontSize:'12px'}} formatter={(v:number,n:string)=>[v.toLocaleString('pt-BR'),n]}/>
+                {chartData.numCols.length>1&&<Legend wrapperStyle={{fontSize:'11px'}} iconType="circle" iconSize={7}/>}
+                {chartData.numCols.map((col,i)=><Bar key={col} dataKey={col} fill={CHART_COLORS[i%CHART_COLORS.length]} radius={[5,5,0,0]} maxBarSize={50}/>)}
+              </BarChart>
+            ) : chartType === 'line' ? (
+              <LineChart data={chartData.data} margin={{top:8,right:16,left:4,bottom:60}}>
+                <CartesianGrid strokeDasharray="4 4" stroke="#e5e7eb" vertical={false}/>
+                <XAxis dataKey={chartData.labelCol} tick={{fontSize:10,fill:'#6b7280'}} angle={-35} textAnchor="end" interval={0} height={60} axisLine={false} tickLine={false}/>
+                <YAxis tick={{fontSize:10,fill:'#6b7280'}} axisLine={false} tickLine={false} tickFormatter={(v:number)=>v>=1e6?`${(v/1e6).toFixed(1)}M`:v>=1e3?`${(v/1e3).toFixed(0)}k`:String(v)}/>
+                <Tooltip contentStyle={{background:'hsl(var(--background))',border:'1px solid hsl(var(--border))',borderRadius:'8px',fontSize:'12px'}} formatter={(v:number,n:string)=>[v.toLocaleString('pt-BR'),n]}/>
+                {chartData.numCols.length>1&&<Legend wrapperStyle={{fontSize:'11px'}} iconType="circle" iconSize={7}/>}
+                {chartData.numCols.map((col,i)=><Line key={col} type="monotone" dataKey={col} stroke={CHART_COLORS[i%CHART_COLORS.length]} strokeWidth={2.5} dot={false} activeDot={{r:4}}/>)}
+              </LineChart>
+            ) : (
+              <AreaChart data={chartData.data} margin={{top:8,right:16,left:4,bottom:60}}>
+                <defs>{chartData.numCols.map((col,i)=>(<linearGradient key={col} id={`xga-${i}`} x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={CHART_COLORS[i%CHART_COLORS.length]} stopOpacity={0.3}/><stop offset="95%" stopColor={CHART_COLORS[i%CHART_COLORS.length]} stopOpacity={0.02}/></linearGradient>))}</defs>
+                <CartesianGrid strokeDasharray="4 4" stroke="#e5e7eb" vertical={false}/>
+                <XAxis dataKey={chartData.labelCol} tick={{fontSize:10,fill:'#6b7280'}} angle={-35} textAnchor="end" interval={0} height={60} axisLine={false} tickLine={false}/>
+                <YAxis tick={{fontSize:10,fill:'#6b7280'}} axisLine={false} tickLine={false} tickFormatter={(v:number)=>v>=1e6?`${(v/1e6).toFixed(1)}M`:v>=1e3?`${(v/1e3).toFixed(0)}k`:String(v)}/>
+                <Tooltip contentStyle={{background:'hsl(var(--background))',border:'1px solid hsl(var(--border))',borderRadius:'8px',fontSize:'12px'}} formatter={(v:number,n:string)=>[v.toLocaleString('pt-BR'),n]}/>
+                {chartData.numCols.length>1&&<Legend wrapperStyle={{fontSize:'11px'}} iconType="circle" iconSize={7}/>}
+                {chartData.numCols.map((col,i)=><Area key={col} type="monotone" dataKey={col} stroke={CHART_COLORS[i%CHART_COLORS.length]} strokeWidth={2.5} fill={`url(#xga-${i})`} dot={false} activeDot={{r:4}}/>)}
+              </AreaChart>
+            )}
+          </ResponsiveContainer>
+        )}
+        {chartData && (chartType === 'pie' || chartType === 'donut') && (() => {
+          const pieData = chartData.data.map(row => ({ name: String(row[chartData.labelCol]??''), value: Number(row[chartData.numCols[0]]??0) }));
+          return (
+            <ResponsiveContainer width="100%" height={280}>
+              <PieChart>
+                <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius="75%" innerRadius={chartType==='donut'?'50%':'0%'} paddingAngle={chartType==='donut'?3:1} label={({name,percent})=>`${name} ${(percent*100).toFixed(1)}%`} labelLine={true}>
+                  {pieData.map((_,i)=><Cell key={i} fill={CHART_COLORS[i%CHART_COLORS.length]} stroke="#fff" strokeWidth={2}/>)}
+                </Pie>
+                <Tooltip contentStyle={{background:'hsl(var(--background))',border:'1px solid hsl(var(--border))',borderRadius:'8px',fontSize:'12px'}} formatter={(v:number)=>[v.toLocaleString('pt-BR')]}/>
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{fontSize:'11px'}}/>
+              </PieChart>
+            </ResponsiveContainer>
+          );
+        })()}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── component ─────────────────────────────────────────────────────────────────
 // ── drill-down modal state ────────────────────────────────────────────────────
 interface DrillState {
@@ -148,6 +329,7 @@ export default function DashboardView() {
   const [chartPanelOpen, setChartPanelOpen] = useState(false);
   const [savingChart,   setSavingChart]   = useState(false);
   const [tableFilter,   setTableFilter]   = useState('');
+  const [extraChartResults, setExtraChartResults] = useState<(QueryResult | null)[]>([null, null, null]);
 
   // Config from backend .env
   const { data: appConfig } = useQuery({
@@ -169,21 +351,27 @@ export default function DashboardView() {
 
   // ── core executor ────────────────────────────────────────────────────────
   // C2 — SQL template + params enviados separados; backend usa prepared statements
-  const runQuery = useCallback(async (sql: string, queryParams: Record<string, string>, chartSql?: string) => {
+  const runQuery = useCallback(async (sql: string, queryParams: Record<string, string>, chartSql?: string, extraSqls?: string[]) => {
     setExecuting(true);
     setQueryError(null);
     setQueryResult(null);
     setChartResult(null);
+    setExtraChartResults([null, null, null]);
     setSortConfig({ col: '', dir: null });
     setCurrentPage(1);
     setTableFilter('');
     try {
-      const [result, chartRes] = await Promise.all([
+      const extraPromises = (extraSqls ?? []).map(s =>
+        s.trim() ? executeQuery(s, queryParams, Number(id)) : Promise.resolve(null)
+      );
+      const [result, chartRes, ...extraRes] = await Promise.all([
         executeQuery(sql, queryParams, Number(id)),
         chartSql ? executeQuery(chartSql, queryParams, Number(id)) : Promise.resolve(null),
+        ...extraPromises,
       ]);
       setQueryResult(result);
       setChartResult(chartRes);
+      setExtraChartResults([extraRes[0] ?? null, extraRes[1] ?? null, extraRes[2] ?? null]);
     } catch (err: unknown) {
       setQueryError(err instanceof Error ? err.message : 'Erro ao executar a query');
     } finally {
@@ -194,8 +382,9 @@ export default function DashboardView() {
   // C2 — passa SQL template + params; backend substitui via prepared statement
   const handleExecute = useCallback(() => {
     if (!dashboard?.sql_query) return;
-    runQuery(dashboard.sql_query, params, dashboard.chart_sql_query ?? undefined);
-  }, [dashboard?.sql_query, dashboard?.chart_sql_query, params, runQuery]);
+    const extraSqls = (dashboard.extra_charts ?? []).map(c => c.sql_query);
+    runQuery(dashboard.sql_query, params, dashboard.chart_sql_query ?? undefined, extraSqls);
+  }, [dashboard?.sql_query, dashboard?.chart_sql_query, dashboard?.extra_charts, params, runQuery]);
 
   // stable ref so intervals always call latest version
   const handleExecuteRef = useRef(handleExecute);
@@ -224,7 +413,8 @@ export default function DashboardView() {
     if ([...searchParams.keys()].length > 0) setSearchParams({}, { replace: true });
 
     setParams(initial);
-    runQuery(dashboard.sql_query, initial, dashboard.chart_sql_query ?? undefined);
+    const extraSqls = (dashboard.extra_charts ?? []).map(c => c.sql_query);
+    runQuery(dashboard.sql_query, initial, dashboard.chart_sql_query ?? undefined, extraSqls);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dashboard?.id]);
 
@@ -852,6 +1042,39 @@ export default function DashboardView() {
                 </CardContent>
               </Card>
             )}
+
+            {/* extra charts grid (gráficos 2, 3, 4) */}
+            {(() => {
+              const activeExtras = (dashboard.extra_charts ?? [])
+                .map((ec, idx) => ({ ec, idx, result: extraChartResults[idx] }))
+                .filter(x => x.result !== null);
+              if (activeExtras.length === 0) return null;
+              const gridCols = activeExtras.length === 1
+                ? 'grid-cols-1'
+                : activeExtras.length === 2
+                ? 'grid-cols-1 md:grid-cols-2'
+                : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3';
+              return (
+                <div className={`grid gap-4 ${gridCols}`}>
+                  {activeExtras.map(({ ec, idx, result }) => (
+                    <ChartBlock
+                      key={idx}
+                      result={result!}
+                      initialType={ec.chart_type}
+                      initialConfig={ec.chart_config}
+                      title={ec.title || `Gráfico ${idx + 2}`}
+                      admin={admin}
+                      onSave={async (type, config) => {
+                        const updated = (dashboard.extra_charts ?? []).map((c, i) =>
+                          i === idx ? { ...c, chart_type: type, chart_config: config } : c
+                        );
+                        await saveExtraChartConfig(Number(id), updated);
+                      }}
+                    />
+                  ))}
+                </div>
+              );
+            })()}
 
             {/* data table */}
             <Card>
