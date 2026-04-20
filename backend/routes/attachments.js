@@ -50,7 +50,7 @@ const upload = multer({
 
 // A6 — Rate limiting para upload (20 uploads/min por IP)
 const uploadLimiter = rateLimit({
-  windowMs: 60 * 1000,
+  windowMs: 600 * 1000,
   max: 20,
   standardHeaders: true,
   legacyHeaders: false,

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   createDashboard, updateDashboard, getDashboard, getDashboards, testQuery,
+  getConnections,
   extractSqlParams, guessParamType, getParamDefault,
   type DashboardParam, type ParamType, type ChartType, type DashboardLink, type DashboardAction,
 } from '@/services/api';
@@ -137,17 +138,19 @@ export default function DashboardCreate() {
   const isEdit      = !!id;
   const queryClient = useQueryClient();
 
-  const [activeTab,       setActiveTab]       = useState<TabId>('sql');
-  const [nome,            setNome]            = useState('');
-  const [descricao,       setDescricao]       = useState('');
-  const [sqlQuery,        setSqlQuery]        = useState('');
-  const [chartSqlEnabled, setChartSqlEnabled] = useState(false);
-  const [chartSqlQuery,   setChartSqlQuery]   = useState('');
-  const [chartType,       setChartType]       = useState<ChartType>('bar');
-  const [paramRows,       setParamRows]       = useState<ParamRow[]>([]);
-  const [linkRows,        setLinkRows]        = useState<LinkRow[]>([]);
-  const [actionRows,      setActionRows]      = useState<ActionRow[]>([]);
-  const [hintRows,        setHintRows]        = useState<{ _id: string; col: string; text: string }[]>([]);
+  const [activeTab,        setActiveTab]       = useState<TabId>('sql');
+  const [nome,             setNome]            = useState('');
+  const [descricao,        setDescricao]       = useState('');
+  const [sqlQuery,         setSqlQuery]        = useState('');
+  const [chartSqlEnabled,  setChartSqlEnabled] = useState(false);
+  const [chartSqlQuery,    setChartSqlQuery]   = useState('');
+  const [chartType,        setChartType]       = useState<ChartType>('bar');
+  const [paramRows,        setParamRows]       = useState<ParamRow[]>([]);
+  const [linkRows,         setLinkRows]        = useState<LinkRow[]>([]);
+  const [actionRows,       setActionRows]      = useState<ActionRow[]>([]);
+  const [hintRows,         setHintRows]        = useState<{ _id: string; col: string; text: string }[]>([]);
+  const [refreshInterval,  setRefreshInterval] = useState('0');
+  const [connectionId,     setConnectionId]    = useState<string>('');
   const [errors,          setErrors]          = useState<FormErrors>({});
   const [touched,         setTouched]         = useState(false);
   const [confirmOpen,     setConfirmOpen]     = useState(false);
@@ -166,6 +169,11 @@ export default function DashboardCreate() {
     queryFn: getDashboards,
   });
 
+  const { data: allConnections = [] } = useQuery({
+    queryKey: ['connections'],
+    queryFn: getConnections,
+  });
+
   useEffect(() => {
     if (existing) {
       setNome(existing.nome);
@@ -182,6 +190,8 @@ export default function DashboardCreate() {
       setHintRows(Object.entries(existing.column_hints || {}).map(([col, text]) => ({
         _id: Math.random().toString(36).slice(2), col, text,
       })));
+      setRefreshInterval(String(existing.refresh_interval ?? 0));
+      setConnectionId(existing.connection_id ? String(existing.connection_id) : '');
     }
   }, [existing]);
 
@@ -269,6 +279,8 @@ export default function DashboardCreate() {
     column_hints: hintRows.filter(h => h.col.trim() && h.text.trim()).length > 0
       ? Object.fromEntries(hintRows.filter(h => h.col.trim() && h.text.trim()).map(h => [h.col.trim(), h.text.trim()]))
       : null,
+    refresh_interval: Math.max(0, parseInt(refreshInterval) || 0),
+    connection_id: connectionId ? parseInt(connectionId) || null : null,
   });
 
   const createMutation = useMutation({
@@ -407,6 +419,48 @@ export default function DashboardCreate() {
 
               {/* ── aba 1: SQL & Parâmetros ───────────────────────────── */}
               {activeTab === 'sql' && <>
+
+                {/* Configurações gerais */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Configurações</CardTitle>
+                    <CardDescription>Atualização automática e conexão de banco</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                      <div className="space-y-1.5">
+                        <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500 }}>
+                          Atualização automática (segundos)
+                        </label>
+                        <input
+                          type="number" min="0" step="30"
+                          value={refreshInterval}
+                          onChange={e => setRefreshInterval(e.target.value)}
+                          placeholder="0 = desabilitado"
+                          style={{ ...inputStyle, height: '2.5rem' }}
+                        />
+                        <p style={{ fontSize: '0.75rem', color: '#9ca3af' }}>0 = usa configuração global; &gt;0 = intervalo específico (ex: 60)</p>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500 }}>
+                          Conexão de banco
+                        </label>
+                        <select
+                          value={connectionId}
+                          onChange={e => setConnectionId(e.target.value)}
+                          style={{ ...inputStyle, height: '2.5rem', cursor: 'pointer' }}
+                        >
+                          <option value="">Padrão (conexão principal)</option>
+                          {allConnections.map(c => (
+                            <option key={c.id} value={c.id}>{c.nome} ({c.host}/{c.database})</option>
+                          ))}
+                        </select>
+                        <p style={{ fontSize: '0.75rem', color: '#9ca3af' }}>Selecione uma conexão alternativa para este dashboard</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2 text-base">

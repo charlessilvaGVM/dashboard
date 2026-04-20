@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, LogOut, Menu, X, BarChart2, ChevronRight, Users, ShieldCheck, Sun, Moon } from 'lucide-react';
+import { LayoutDashboard, LogOut, Menu, X, BarChart2, ChevronRight, Users, ShieldCheck, Sun, Moon, Activity, Server } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { getUser, removeToken, isAdmin, logoutApi } from '@/services/api';
@@ -15,8 +15,10 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { label: 'Dashboards',     path: '/dashboards',     icon: <LayoutDashboard className="h-5 w-5" /> },
-  { label: 'Usuários',       path: '/users',          icon: <Users className="h-5 w-5" />, adminOnly: true },
+  { label: 'Dashboards',  path: '/dashboards',   icon: <LayoutDashboard className="h-5 w-5" /> },
+  { label: 'Usuários',    path: '/users',        icon: <Users      className="h-5 w-5" />, adminOnly: true },
+  { label: 'Conexões',    path: '/connections',  icon: <Server     className="h-5 w-5" />, adminOnly: true },
+  { label: 'Logs',        path: '/logs',         icon: <Activity   className="h-5 w-5" />, adminOnly: true },
 ];
 
 interface AppLayoutProps {

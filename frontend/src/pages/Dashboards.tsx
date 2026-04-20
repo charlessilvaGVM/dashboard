@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, Eye, Pencil, Trash2, LayoutDashboard, Calendar, Clock, AlertCircle,
+  Search, ArrowUpAZ, ArrowDownAZ, ArrowUpDown, X,
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -49,11 +50,32 @@ export default function Dashboards() {
   const queryClient = useQueryClient();
   const admin    = isAdmin();
   const [deleteTarget, setDeleteTarget] = useState<Dashboard | null>(null);
+  const [search,    setSearch]    = useState('');
+  type SortKey = 'name_asc' | 'name_desc' | 'date_desc' | 'date_asc';
+  const [sortKey, setSortKey] = useState<SortKey>('date_desc');
 
   const { data: dashboards, isLoading, error } = useQuery({
     queryKey: ['dashboards'],
     queryFn: getDashboards,
   });
+
+  const filteredDashboards = useMemo(() => {
+    if (!dashboards) return [];
+    let list = dashboards;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(d =>
+        d.nome.toLowerCase().includes(q) ||
+        (d.descricao || '').toLowerCase().includes(q)
+      );
+    }
+    return [...list].sort((a, b) => {
+      if (sortKey === 'name_asc')   return a.nome.localeCompare(b.nome, 'pt-BR');
+      if (sortKey === 'name_desc')  return b.nome.localeCompare(a.nome, 'pt-BR');
+      if (sortKey === 'date_asc')   return new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime();
+      return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+    });
+  }, [dashboards, search, sortKey]);
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => deleteDashboard(id),
@@ -77,11 +99,13 @@ export default function Dashboards() {
     <AppLayout title="Meus Dashboards">
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-bold text-foreground">Meus Dashboards</h1>
             <p className="text-muted-foreground mt-1">
-              {dashboards?.length ?? 0} dashboard{dashboards?.length !== 1 ? 's' : ''} cadastrado{dashboards?.length !== 1 ? 's' : ''}
+              {filteredDashboards.length !== (dashboards?.length ?? 0)
+                ? `${filteredDashboards.length} de ${dashboards?.length ?? 0} dashboards`
+                : `${dashboards?.length ?? 0} dashboard${dashboards?.length !== 1 ? 's' : ''} cadastrado${dashboards?.length !== 1 ? 's' : ''}`}
             </p>
           </div>
           {admin && (
@@ -93,6 +117,50 @@ export default function Dashboards() {
             </Button>
           )}
         </div>
+
+        {/* Search + Sort */}
+        {!isLoading && !error && (dashboards?.length ?? 0) > 0 && (
+          <div className="flex items-center gap-3 flex-wrap">
+            <div style={{ position: 'relative', flex: '1 1 220px', maxWidth: '360px' }}>
+              <Search style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', width: '0.875rem', height: '0.875rem', color: '#9ca3af', pointerEvents: 'none' }} />
+              <input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Buscar dashboards..."
+                style={{
+                  width: '100%', paddingLeft: '2rem', paddingRight: search ? '2rem' : '0.75rem',
+                  height: '2.25rem', borderRadius: '0.5rem',
+                  border: '1px solid hsl(var(--border))',
+                  background: 'hsl(var(--background))', color: 'hsl(var(--foreground))',
+                  fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box',
+                }}
+              />
+              {search && (
+                <button onClick={() => setSearch('')} style={{ position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex' }}>
+                  <X style={{ width: '0.75rem', height: '0.75rem', color: '#9ca3af' }} />
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-1 border rounded-lg p-1 bg-muted/30">
+              {([
+                { key: 'name_asc',   icon: <ArrowUpAZ   className="h-3.5 w-3.5" />, label: 'A-Z' },
+                { key: 'name_desc',  icon: <ArrowDownAZ className="h-3.5 w-3.5" />, label: 'Z-A' },
+                { key: 'date_desc',  icon: <ArrowUpDown className="h-3.5 w-3.5" />, label: 'Recentes' },
+                { key: 'date_asc',   icon: <ArrowUpDown className="h-3.5 w-3.5" style={{ transform: 'scaleY(-1)' }} />, label: 'Antigos' },
+              ] as { key: SortKey; icon: React.ReactNode; label: string }[]).map(opt => (
+                <button
+                  key={opt.key}
+                  onClick={() => setSortKey(opt.key)}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                    sortKey === opt.key ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {opt.icon}{opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Error state */}
         {error && (
@@ -111,6 +179,15 @@ export default function Dashboards() {
             {Array.from({ length: 6 }).map((_, i) => (
               <SkeletonCard key={i} />
             ))}
+          </div>
+        )}
+
+        {/* No results from filter */}
+        {!isLoading && !error && (dashboards?.length ?? 0) > 0 && filteredDashboards.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <Search className="h-10 w-10 text-muted-foreground/30 mb-3" />
+            <p className="font-medium text-foreground">Nenhum resultado para "{search}"</p>
+            <Button variant="outline" size="sm" className="mt-4" onClick={() => setSearch('')}>Limpar busca</Button>
           </div>
         )}
 
@@ -134,9 +211,9 @@ export default function Dashboards() {
         )}
 
         {/* Dashboard grid */}
-        {!isLoading && !error && dashboards && dashboards.length > 0 && (
+        {!isLoading && !error && filteredDashboards.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {dashboards.map((dashboard) => (
+            {filteredDashboards.map((dashboard) => (
               <Card
                 key={dashboard.id}
                 className="group hover:shadow-md transition-shadow cursor-pointer border hover:border-primary/30"

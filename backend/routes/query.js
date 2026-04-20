@@ -15,14 +15,13 @@ const queryLimiter = rateLimit({
   message: { error: 'Muitas requisições. Tente novamente em 1 minuto.' },
 });
 
-// LOG_SQL desativado por padrão — ative com LOG_SQL=true no .env
-const LOG_SQL = process.env.LOG_SQL === 'true';
+const LOG_SQL        = process.env.LOG_SQL        === 'true';
+const LOG_EXECUTIONS = process.env.LOG_EXECUTIONS === 'true';
 
 function logSql(label, paramSql, values, executionMs) {
   if (!LOG_SQL) return;
   const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
-  // reconstrói o SQL com os valores reais para facilitar leitura
   let i = 0;
   const fullSql = paramSql.replace(/\?/g, () => {
     const v = values[i++];
@@ -115,10 +114,31 @@ router.post('/execute', queryLimiter, async (req, res) => {
     params && typeof params === 'object' ? params : {}
   );
 
+  // Resolve connection pool (#9 multi-connection)
+  let pool = db;
+  let dashboardNome = null;
+  if (dashboard_id) {
+    try {
+      const [dashRows] = await db.query(
+        'SELECT nome, connection_id FROM dashboards WHERE id = ?',
+        [dashboard_id]
+      );
+      if (dashRows && dashRows.length > 0) {
+        dashboardNome = dashRows[0].nome;
+        const connId = dashRows[0].connection_id;
+        if (connId) {
+          pool = await db.getPoolForConnection(connId);
+        }
+      }
+    } catch (e) {
+      console.error('[query/execute] failed to resolve connection:', e.message);
+    }
+  }
+
   const startTime = Date.now();
 
   try {
-    const connection = await db.getConnection();
+    const connection = await pool.getConnection();
 
     try {
       await connection.query('SET SESSION MAX_EXECUTION_TIME = 30000');
@@ -135,6 +155,25 @@ router.post('/execute', queryLimiter, async (req, res) => {
 
     const executionTime = Date.now() - startTime;
     logSql(dashboard_id ? `dash #${dashboard_id}` : 'drill-down', finalSql, values, executionTime);
+
+    // #6 — Gravar log de execução se habilitado
+    if (LOG_EXECUTIONS && dashboard_id) {
+      try {
+        await db.query(
+          'INSERT INTO execution_logs (dashboard_id, dashboard_nome, user_id, usuario, execution_time_ms, row_count) VALUES (?, ?, ?, ?, ?, ?)',
+          [
+            dashboard_id,
+            dashboardNome,
+            req.user?.id   || null,
+            req.user?.usuario || null,
+            executionTime,
+            rows.length,
+          ]
+        );
+      } catch (logErr) {
+        console.error('[query/execute] log insert failed:', logErr.message);
+      }
+    }
 
     const columns = fields
       ? fields.map(f => ({ name: f.name, type: f.type || 'unknown' }))

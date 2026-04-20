@@ -101,6 +101,8 @@ export interface Dashboard {
   actions: DashboardAction[] | null;
   chart_config: ChartConfig | null;
   column_hints: Record<string, string> | null;
+  refresh_interval: number | null;
+  connection_id: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -217,10 +219,10 @@ export async function getDashboards(): Promise<Dashboard[]> {
 export async function getDashboard(id: number): Promise<Dashboard> {
   return request<Dashboard>('GET', `/dashboards/${id}`);
 }
-export async function createDashboard(data: { nome: string; descricao?: string; sql_query: string; chart_sql_query?: string | null; params?: DashboardParam[]; chart_type?: ChartType; links?: DashboardLink[]; actions?: DashboardAction[]; column_hints?: Record<string, string> | null }): Promise<Dashboard> {
+export async function createDashboard(data: { nome: string; descricao?: string; sql_query: string; chart_sql_query?: string | null; params?: DashboardParam[]; chart_type?: ChartType; links?: DashboardLink[]; actions?: DashboardAction[]; column_hints?: Record<string, string> | null; refresh_interval?: number; connection_id?: number | null }): Promise<Dashboard> {
   return request<Dashboard>('POST', '/dashboards', data);
 }
-export async function updateDashboard(id: number, data: { nome: string; descricao?: string; sql_query: string; chart_sql_query?: string | null; params?: DashboardParam[]; chart_type?: ChartType; links?: DashboardLink[]; actions?: DashboardAction[]; column_hints?: Record<string, string> | null }): Promise<Dashboard> {
+export async function updateDashboard(id: number, data: { nome: string; descricao?: string; sql_query: string; chart_sql_query?: string | null; params?: DashboardParam[]; chart_type?: ChartType; links?: DashboardLink[]; actions?: DashboardAction[]; column_hints?: Record<string, string> | null; refresh_interval?: number; connection_id?: number | null }): Promise<Dashboard> {
   return request<Dashboard>('PUT', `/dashboards/${id}`, data);
 }
 export async function deleteDashboard(id: number): Promise<{ message: string }> {
@@ -296,4 +298,69 @@ export async function logoutApi(): Promise<void> {
 }
 export async function testQuery(sql: string): Promise<{ valid: boolean; error?: string }> {
   return request<{ valid: boolean; error?: string }>('POST', '/query/test', { sql });
+}
+
+// ── DB Connections ────────────────────────────────────────────────────────────
+export interface DbConnection {
+  id: number;
+  nome: string;
+  host: string;
+  port: number;
+  database: string;
+  user: string;
+  ativo: number;
+  created_at: string;
+}
+
+export async function getConnections(): Promise<DbConnection[]> {
+  return request<DbConnection[]>('GET', '/connections');
+}
+export async function getConnection(id: number): Promise<DbConnection> {
+  return request<DbConnection>('GET', `/connections/${id}`);
+}
+export async function createConnection(data: { nome: string; host: string; port?: number; database: string; user: string; password: string; ativo?: boolean }): Promise<DbConnection> {
+  return request<DbConnection>('POST', '/connections', data);
+}
+export async function updateConnection(id: number, data: { nome: string; host: string; port?: number; database: string; user: string; password?: string; ativo?: boolean }): Promise<DbConnection> {
+  return request<DbConnection>('PUT', `/connections/${id}`, data);
+}
+export async function deleteConnection(id: number): Promise<{ message: string }> {
+  return request<{ message: string }>('DELETE', `/connections/${id}`);
+}
+export async function testConnection(id: number): Promise<{ ok: boolean; message: string }> {
+  return request<{ ok: boolean; message: string }>('POST', `/connections/${id}/test`, {});
+}
+
+// ── Execution Logs ────────────────────────────────────────────────────────────
+export interface ExecutionLog {
+  id: number;
+  dashboard_id: number | null;
+  dashboard_nome: string | null;
+  user_id: number | null;
+  usuario: string | null;
+  execution_time_ms: number;
+  row_count: number;
+  executed_at: string;
+}
+
+export interface LogsResult {
+  total: number;
+  page: number;
+  limit: number;
+  rows: ExecutionLog[];
+}
+
+export async function getLogs(params: { page?: number; limit?: number; dashboard?: string; usuario?: string; dt_ini?: string; dt_fim?: string }): Promise<LogsResult> {
+  const q = new URLSearchParams();
+  if (params.page)      q.set('page',      String(params.page));
+  if (params.limit)     q.set('limit',     String(params.limit));
+  if (params.dashboard) q.set('dashboard', params.dashboard);
+  if (params.usuario)   q.set('usuario',   params.usuario);
+  if (params.dt_ini)    q.set('dt_ini',    params.dt_ini);
+  if (params.dt_fim)    q.set('dt_fim',    params.dt_fim);
+  return request<LogsResult>('GET', `/logs?${q.toString()}`);
+}
+
+export async function clearLogs(): Promise<{ message: string }> {
+  return request<{ message: string }>('DELETE', '/logs/clear');
 }

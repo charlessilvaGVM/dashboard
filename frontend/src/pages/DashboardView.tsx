@@ -7,7 +7,7 @@ import {
   AlertCircle, Clock, Database, Rows, Columns,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
   SlidersHorizontal, RefreshCw, FileSpreadsheet, FileText, Link2,
-  Settings2, Save, RotateCcw,
+  Settings2, Save, RotateCcw, Search, X,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -147,6 +147,7 @@ export default function DashboardView() {
   const [chartConfig,   setChartConfig]   = useState<ChartConfig | null>(null);
   const [chartPanelOpen, setChartPanelOpen] = useState(false);
   const [savingChart,   setSavingChart]   = useState(false);
+  const [tableFilter,   setTableFilter]   = useState('');
 
   // Config from backend .env
   const { data: appConfig } = useQuery({
@@ -175,6 +176,7 @@ export default function DashboardView() {
     setChartResult(null);
     setSortConfig({ col: '', dir: null });
     setCurrentPage(1);
+    setTableFilter('');
     try {
       const [result, chartRes] = await Promise.all([
         executeQuery(sql, queryParams, Number(id)),
@@ -226,24 +228,29 @@ export default function DashboardView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dashboard?.id]);
 
+  // #7 — effective refresh: per-dashboard > 0 overrides global
+  const effectiveRefresh = (dashboard?.refresh_interval ?? 0) > 0
+    ? (dashboard!.refresh_interval as number)
+    : DASH_REFRESH;
+
   // ── auto-refresh ─────────────────────────────────────────────────────────
   useEffect(() => {
-    if (DASH_REFRESH <= 0 || !dashboard?.sql_query) return;
-    setCountdown(DASH_REFRESH);
+    if (effectiveRefresh <= 0 || !dashboard?.sql_query) return;
+    setCountdown(effectiveRefresh);
     const timer = setInterval(() => {
       handleExecuteRef.current();
-      setCountdown(DASH_REFRESH);
-    }, DASH_REFRESH * 1000);
+      setCountdown(effectiveRefresh);
+    }, effectiveRefresh * 1000);
     return () => clearInterval(timer);
-  }, [dashboard?.sql_query, DASH_REFRESH]);
+  }, [dashboard?.sql_query, effectiveRefresh]);
 
   // countdown ticker
   useEffect(() => {
-    if (DASH_REFRESH <= 0) return;
-    setCountdown(DASH_REFRESH);
+    if (effectiveRefresh <= 0) return;
+    setCountdown(effectiveRefresh);
     const ticker = setInterval(() => setCountdown(p => Math.max(0, p - 1)), 1000);
     return () => clearInterval(ticker);
-  }, [DASH_REFRESH]);
+  }, [effectiveRefresh]);
 
   // ── reset page on sort ───────────────────────────────────────────────────
   useEffect(() => { setCurrentPage(1); }, [sortConfig]);
@@ -367,10 +374,20 @@ export default function DashboardView() {
     });
   };
 
-  const sortedRows = useMemo(() => {
+  // #4 — client-side quick filter
+  const filteredRows = useMemo(() => {
     if (!queryResult) return [];
-    if (!sortConfig.col || !sortConfig.dir) return queryResult.rows;
-    return [...queryResult.rows].sort((a, b) => {
+    if (!tableFilter.trim()) return queryResult.rows;
+    const needle = tableFilter.trim().toLowerCase();
+    return queryResult.rows.filter(row =>
+      Object.values(row).some(v => v !== null && v !== undefined && String(v).toLowerCase().includes(needle))
+    );
+  }, [queryResult, tableFilter]);
+
+  const sortedRows = useMemo(() => {
+    if (!filteredRows.length) return filteredRows;
+    if (!sortConfig.col || !sortConfig.dir) return filteredRows;
+    return [...filteredRows].sort((a, b) => {
       const av = a[sortConfig.col], bv = b[sortConfig.col];
       const an = Number(av),        bn = Number(bv);
       const cmp = (!isNaN(an) && !isNaN(bn))
@@ -378,7 +395,7 @@ export default function DashboardView() {
         : String(av ?? '').localeCompare(String(bv ?? ''), 'pt-BR');
       return sortConfig.dir === 'desc' ? -cmp : cmp;
     });
-  }, [queryResult, sortConfig]);
+  }, [filteredRows, sortConfig]);
 
   const totalPages    = Math.max(1, Math.ceil(sortedRows.length / PAGE_SIZE));
   const safePage      = Math.min(currentPage, totalPages);
@@ -415,6 +432,17 @@ export default function DashboardView() {
   // ── JSX ───────────────────────────────────────────────────────────────────
   return (
     <AppLayout title={dashboard.nome}>
+      {/* #3 — thin animated progress bar at top during execution */}
+      {executing && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999, height: '3px' }}>
+          <div style={{
+            height: '100%', background: 'hsl(var(--primary))',
+            animation: 'progressBar 2s ease-in-out infinite',
+            transformOrigin: 'left center',
+          }} />
+          <style>{`@keyframes progressBar { 0%{width:0%} 60%{width:85%} 100%{width:95%} }`}</style>
+        </div>
+      )}
       <div className="space-y-5">
 
         {/* ── header ────────────────────────────────────────────────────── */}
@@ -432,7 +460,7 @@ export default function DashboardView() {
           </div>
 
           <div className="flex items-center gap-2">
-            {DASH_REFRESH > 0 && (
+            {effectiveRefresh > 0 && (
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground border rounded-md px-2.5 py-1.5">
                 <RefreshCw className="h-3.5 w-3.5" />
                 {countdown}s
@@ -831,8 +859,29 @@ export default function DashboardView() {
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <CardTitle className="text-base">Dados</CardTitle>
                   <div className="flex items-center gap-2 flex-wrap">
+                    {/* #4 — quick filter */}
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                      <Search style={{ position: 'absolute', left: '0.5rem', width: '0.875rem', height: '0.875rem', color: '#9ca3af', pointerEvents: 'none' }} />
+                      <input
+                        value={tableFilter}
+                        onChange={e => { setTableFilter(e.target.value); setCurrentPage(1); }}
+                        placeholder="Filtrar dados..."
+                        style={{
+                          paddingLeft: '1.75rem', paddingRight: tableFilter ? '1.75rem' : '0.5rem',
+                          height: '1.875rem', borderRadius: '0.375rem',
+                          border: '1px solid hsl(var(--border))',
+                          background: 'hsl(var(--background))', color: 'hsl(var(--foreground))',
+                          fontSize: '0.8125rem', outline: 'none', width: '180px',
+                        }}
+                      />
+                      {tableFilter && (
+                        <button onClick={() => setTableFilter('')} style={{ position: 'absolute', right: '0.4rem', background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center' }}>
+                          <X style={{ width: '0.75rem', height: '0.75rem', color: '#9ca3af' }} />
+                        </button>
+                      )}
+                    </div>
                     <span className="text-xs text-muted-foreground">
-                      {sortedRows.length.toLocaleString('pt-BR')} linhas &middot; {queryResult.columns.length} colunas
+                      {sortedRows.length.toLocaleString('pt-BR')}{tableFilter ? ` / ${(queryResult.rowCount).toLocaleString('pt-BR')}` : ''} linhas &middot; {queryResult.columns.length} colunas
                     </span>
                     <button
                       onClick={() => exportExcel(queryResult.columns, sortedRows, dashboard.nome)}
