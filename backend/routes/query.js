@@ -48,9 +48,22 @@ function isDateLike(v) {
 }
 
 // C2 — Converte @param_name → ? e monta array de valores (prepared statement)
+// Listas numéricas separadas por vírgula (ex: 55,100,222) são substituídas
+// diretamente no SQL pois prepared statements não suportam IN (?) com múltiplos valores.
 function buildParameterizedQuery(sql, params = {}) {
+  // 1ª passagem: substituição direta para listas numéricas (seguro — todos validados como número)
+  let processedSql = sql;
+  for (const [name, raw] of Object.entries(params)) {
+    if (raw === undefined || raw === null) continue;
+    const v = String(raw).trim();
+    if (/^-?\d+(\.\d+)?(?:,-?\d+(\.\d+)?)+$/.test(v)) {
+      processedSql = processedSql.replace(new RegExp(`@${name}(?![a-zA-Z0-9_])`, 'gi'), v);
+    }
+  }
+
+  // 2ª passagem: demais @params → prepared statement com ?
   const paramNames = [];
-  const parameterized = sql.replace(/@([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, name) => {
+  const parameterized = processedSql.replace(/@([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, name) => {
     paramNames.push(name);
     return '?';
   });

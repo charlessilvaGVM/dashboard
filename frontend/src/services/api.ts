@@ -164,6 +164,8 @@ export function applyParamsToSql(sql: string, params: Record<string, string>): s
       formatted = 'NULL';
     } else if (/^-?\d+(\.\d+)?$/.test(v)) {
       formatted = v;                              // numérico — sem aspas
+    } else if (/^-?\d+(\.\d+)?(?:,-?\d+(\.\d+)?)+$/.test(v)) {
+      formatted = v;                              // lista numérica (55,100,222) — sem aspas
     } else if (isDateLike(v)) {
       formatted = `'${normalizeDate(v)}'`;        // data — normaliza para YYYY-MM-DD
     } else {

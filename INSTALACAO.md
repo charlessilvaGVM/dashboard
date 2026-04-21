@@ -258,3 +258,16 @@ pm2 start all
 | Tela em branco no navegador | Frontend não subiu | `pm2 logs gvm-frontend` |
 | "Token expired" no login | Normal — fazer login novamente | — |
 | PM2 não reconhecido | PM2 não instalado | `npm install -g pm2` como admin |
+
+
+
+                                                                                                                                                  
+● Dentro da pasta raiz do projeto (D:\GVM\GVMDASHBOARD):                                                                                          
+                                         
+  git add -A                                                                                                                                      
+  git commit -m "adicionar suporte a até 4 gráficos por dashboard"
+  git push origin master                                                                                                                          
+                                                            
+  Se houver conflito no push:
+  git pull --rebase origin master
+  git push origin master

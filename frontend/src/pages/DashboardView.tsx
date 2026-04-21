@@ -246,7 +246,7 @@ function ChartBlock({ result, initialType, initialConfig, title, admin, onSave }
           </div>
         )}
         {chartData && (chartType === 'bar' || chartType === 'line' || chartType === 'area') && (
-          <ResponsiveContainer width="100%" height={280}>
+          <ResponsiveContainer width="100%" height={220}>
             {chartType === 'bar' ? (
               <BarChart data={chartData.data} margin={{top:8,right:16,left:4,bottom:60}} barCategoryGap="30%">
                 <CartesianGrid strokeDasharray="4 4" stroke="#e5e7eb" vertical={false}/>
@@ -281,7 +281,7 @@ function ChartBlock({ result, initialType, initialConfig, title, admin, onSave }
         {chartData && (chartType === 'pie' || chartType === 'donut') && (() => {
           const pieData = chartData.data.map(row => ({ name: String(row[chartData.labelCol]??''), value: Number(row[chartData.numCols[0]]??0) }));
           return (
-            <ResponsiveContainer width="100%" height={280}>
+            <ResponsiveContainer width="100%" height={220}>
               <PieChart>
                 <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius="75%" innerRadius={chartType==='donut'?'50%':'0%'} paddingAngle={chartType==='donut'?3:1} label={({name,percent})=>`${name} ${(percent*100).toFixed(1)}%`} labelLine={true}>
                   {pieData.map((_,i)=><Cell key={i} fill={CHART_COLORS[i%CHART_COLORS.length]} stroke="#fff" strokeWidth={2}/>)}
@@ -325,6 +325,7 @@ export default function DashboardView() {
   const [currentPage,   setCurrentPage]   = useState(1);
   const [params,        setParams]        = useState<Record<string, string>>({});
   const [countdown,     setCountdown]     = useState(0);
+  const [refreshEnabled, setRefreshEnabled] = useState(false);
   const [chartConfig,   setChartConfig]   = useState<ChartConfig | null>(null);
   const [chartPanelOpen, setChartPanelOpen] = useState(false);
   const [savingChart,   setSavingChart]   = useState(false);
@@ -425,22 +426,22 @@ export default function DashboardView() {
 
   // ── auto-refresh ─────────────────────────────────────────────────────────
   useEffect(() => {
-    if (effectiveRefresh <= 0 || !dashboard?.sql_query) return;
+    if (effectiveRefresh <= 0 || !dashboard?.sql_query || !refreshEnabled) return;
     setCountdown(effectiveRefresh);
     const timer = setInterval(() => {
       handleExecuteRef.current();
       setCountdown(effectiveRefresh);
     }, effectiveRefresh * 1000);
     return () => clearInterval(timer);
-  }, [dashboard?.sql_query, effectiveRefresh]);
+  }, [dashboard?.sql_query, effectiveRefresh, refreshEnabled]);
 
   // countdown ticker
   useEffect(() => {
-    if (effectiveRefresh <= 0) return;
+    if (effectiveRefresh <= 0 || !refreshEnabled) { setCountdown(0); return; }
     setCountdown(effectiveRefresh);
     const ticker = setInterval(() => setCountdown(p => Math.max(0, p - 1)), 1000);
     return () => clearInterval(ticker);
-  }, [effectiveRefresh]);
+  }, [effectiveRefresh, refreshEnabled]);
 
   // ── reset page on sort ───────────────────────────────────────────────────
   useEffect(() => { setCurrentPage(1); }, [sortConfig]);
@@ -630,7 +631,7 @@ export default function DashboardView() {
             animation: 'progressBar 2s ease-in-out infinite',
             transformOrigin: 'left center',
           }} />
-          <style>{`@keyframes progressBar { 0%{width:0%} 60%{width:85%} 100%{width:95%} }`}</style>
+          <style>{`@keyframes progressBar { 0%{width:0%} 60%{width:85%} 100%{width:95%} } @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
         </div>
       )}
       <div className="space-y-5">
@@ -651,10 +652,22 @@ export default function DashboardView() {
 
           <div className="flex items-center gap-2">
             {effectiveRefresh > 0 && (
-              <span className="flex items-center gap-1.5 text-xs text-muted-foreground border rounded-md px-2.5 py-1.5">
-                <RefreshCw className="h-3.5 w-3.5" />
-                {countdown}s
-              </span>
+              <button
+                onClick={() => setRefreshEnabled(v => !v)}
+                title={refreshEnabled ? 'Desativar atualização automática' : 'Ativar atualização automática'}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '0.375rem',
+                  padding: '0.3rem 0.65rem', borderRadius: '0.375rem', fontSize: '0.75rem',
+                  fontWeight: 500, cursor: 'pointer',
+                  border: `1px solid ${refreshEnabled ? '#2563eb' : '#d1d5db'}`,
+                  background: refreshEnabled ? '#eff6ff' : '#f9fafb',
+                  color: refreshEnabled ? '#2563eb' : '#9ca3af',
+                  transition: 'all 0.15s',
+                }}
+              >
+                <RefreshCw className="h-3.5 w-3.5" style={{ animation: refreshEnabled ? 'spin 2s linear infinite' : 'none' }} />
+                {refreshEnabled ? `${countdown}s` : 'Auto'}
+              </button>
             )}
             {admin && (
               <Button variant="outline" size="sm" className="gap-2" onClick={() => navigate(`/dashboards/${id}/edit`)}>
@@ -812,9 +825,14 @@ export default function DashboardView() {
               </div>
             )}
 
-            {/* chart */}
-            {chartType !== 'none' && queryResult && (
-              <Card className="overflow-hidden">
+            {/* charts — grid unificado 2 colunas */}
+            {chartType !== 'none' && queryResult && (() => {
+              const activeExtras = (dashboard.extra_charts ?? [])
+                .map((ec, idx) => ({ ec, idx, result: extraChartResults[idx] }))
+                .filter(x => x.result !== null);
+              return (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem', alignItems: 'start' }}>
+              <Card className="overflow-hidden" style={activeExtras.length === 0 ? { gridColumn: '1 / -1' } : {}}>
                 <CardHeader className="pb-0 pt-4 px-5">
                   <div className="flex items-center justify-between gap-3 flex-wrap">
                     <div>
@@ -1041,38 +1059,23 @@ export default function DashboardView() {
                   })()}
                 </CardContent>
               </Card>
-            )}
-
-            {/* extra charts grid (gráficos 2, 3, 4) */}
-            {(() => {
-              const activeExtras = (dashboard.extra_charts ?? [])
-                .map((ec, idx) => ({ ec, idx, result: extraChartResults[idx] }))
-                .filter(x => x.result !== null);
-              if (activeExtras.length === 0) return null;
-              const gridCols = activeExtras.length === 1
-                ? 'grid-cols-1'
-                : activeExtras.length === 2
-                ? 'grid-cols-1 md:grid-cols-2'
-                : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3';
-              return (
-                <div className={`grid gap-4 ${gridCols}`}>
-                  {activeExtras.map(({ ec, idx, result }) => (
-                    <ChartBlock
-                      key={idx}
-                      result={result!}
-                      initialType={ec.chart_type}
-                      initialConfig={ec.chart_config}
-                      title={ec.title || `Gráfico ${idx + 2}`}
-                      admin={admin}
-                      onSave={async (type, config) => {
-                        const updated = (dashboard.extra_charts ?? []).map((c, i) =>
-                          i === idx ? { ...c, chart_type: type, chart_config: config } : c
-                        );
-                        await saveExtraChartConfig(Number(id), updated);
-                      }}
-                    />
-                  ))}
-                </div>
+              {activeExtras.map(({ ec, idx, result }) => (
+                <ChartBlock
+                  key={idx}
+                  result={result!}
+                  initialType={ec.chart_type}
+                  initialConfig={ec.chart_config}
+                  title={ec.title || `Gráfico ${idx + 2}`}
+                  admin={admin}
+                  onSave={async (type, config) => {
+                    const updated = (dashboard.extra_charts ?? []).map((c, i) =>
+                      i === idx ? { ...c, chart_type: type, chart_config: config } : c
+                    );
+                    await saveExtraChartConfig(Number(id), updated);
+                  }}
+                />
+              ))}
+              </div>
               );
             })()}
 
@@ -1320,7 +1323,7 @@ export default function DashboardView() {
             </Card>
 
             {/* attachments */}
-            <AttachmentsCard dashboardId={Number(id)} readOnly={!admin} />
+            {admin && <AttachmentsCard dashboardId={Number(id)} readOnly={false} />}
           </>
         )}
       </div>
