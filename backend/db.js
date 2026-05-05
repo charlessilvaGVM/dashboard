@@ -34,7 +34,7 @@ async function getPoolForConnection(connectionId) {
   if (extraPools.has(connectionId)) return extraPools.get(connectionId);
 
   const [rows] = await promisePool.query(
-    'SELECT host, port, `database`, user, password FROM db_connections WHERE id = ? AND ativo = 1',
+    'SELECT host, port, `database`, user, password FROM gvmdash_connections WHERE id = ? AND ativo = 1',
     [connectionId]
   );
   if (!rows || rows.length === 0) throw new Error(`Conexão ID ${connectionId} não encontrada ou inativa`);

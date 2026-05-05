@@ -127,23 +127,23 @@ async function ensureTable() {
       nome       VARCHAR(255) NOT NULL,
       descricao  TEXT,
       sql_query  TEXT NOT NULL,
-      params     JSON DEFAULT NULL,
+      params     LONGTEXT DEFAULT NULL,
       chart_type VARCHAR(20) DEFAULT 'bar',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
   const migrations = [
-    [`ALTER TABLE dashboards ADD COLUMN params JSON DEFAULT NULL`, 'params column added'],
-    [`ALTER TABLE dashboards ADD COLUMN chart_type VARCHAR(20) DEFAULT 'bar'`, 'chart_type column added'],
-    [`ALTER TABLE dashboards ADD COLUMN links JSON DEFAULT NULL`, 'links column added'],
-    [`ALTER TABLE dashboards ADD COLUMN actions JSON DEFAULT NULL`, 'actions column added'],
-    [`ALTER TABLE dashboards ADD COLUMN chart_config JSON DEFAULT NULL`, 'chart_config column added'],
-    [`ALTER TABLE dashboards ADD COLUMN chart_sql_query TEXT DEFAULT NULL`, 'chart_sql_query column added'],
-    [`ALTER TABLE dashboards ADD COLUMN column_hints JSON DEFAULT NULL`, 'column_hints column added'],
-    [`ALTER TABLE dashboards ADD COLUMN refresh_interval INT DEFAULT 0`, 'refresh_interval column added'],
-    [`ALTER TABLE dashboards ADD COLUMN connection_id INT DEFAULT NULL`, 'connection_id column added'],
-    [`ALTER TABLE dashboards ADD COLUMN extra_charts JSON DEFAULT NULL`, 'extra_charts column added'],
+    [`ALTER TABLE gvmdash_dashboards ADD COLUMN params LONGTEXT DEFAULT NULL`, 'params column added'],
+    [`ALTER TABLE gvmdash_dashboards ADD COLUMN chart_type VARCHAR(20) DEFAULT 'bar'`, 'chart_type column added'],
+    [`ALTER TABLE gvmdash_dashboards ADD COLUMN links LONGTEXT DEFAULT NULL`, 'links column added'],
+    [`ALTER TABLE gvmdash_dashboards ADD COLUMN actions LONGTEXT DEFAULT NULL`, 'actions column added'],
+    [`ALTER TABLE gvmdash_dashboards ADD COLUMN chart_config LONGTEXT DEFAULT NULL`, 'chart_config column added'],
+    [`ALTER TABLE gvmdash_dashboards ADD COLUMN chart_sql_query TEXT DEFAULT NULL`, 'chart_sql_query column added'],
+    [`ALTER TABLE gvmdash_dashboards ADD COLUMN column_hints LONGTEXT DEFAULT NULL`, 'column_hints column added'],
+    [`ALTER TABLE gvmdash_dashboards ADD COLUMN refresh_interval INT DEFAULT 0`, 'refresh_interval column added'],
+    [`ALTER TABLE gvmdash_dashboards ADD COLUMN connection_id INT DEFAULT NULL`, 'connection_id column added'],
+    [`ALTER TABLE gvmdash_dashboards ADD COLUMN extra_charts LONGTEXT DEFAULT NULL`, 'extra_charts column added'],
   ];
   for (const [sql, msg] of migrations) {
     try {
@@ -165,13 +165,13 @@ router.get('/', async (req, res) => {
     let rows;
     if (req.user?.nivel === 'admin') {
       [rows] = await db.query(
-        'SELECT id, nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, chart_config, column_hints, refresh_interval, connection_id, extra_charts, created_at, updated_at FROM dashboards ORDER BY updated_at DESC'
+        'SELECT id, nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, chart_config, column_hints, refresh_interval, connection_id, extra_charts, created_at, updated_at FROM gvmdash_dashboards ORDER BY updated_at DESC'
       );
     } else {
       [rows] = await db.query(
         `SELECT d.id, d.nome, d.descricao, d.sql_query, d.chart_sql_query, d.params, d.chart_type, d.links, d.actions, d.chart_config, d.column_hints, d.refresh_interval, d.connection_id, d.extra_charts, d.created_at, d.updated_at
-         FROM dashboards d
-         INNER JOIN dashboard_permissions dp ON dp.dashboard_id = d.id AND dp.user_id = ?
+         FROM gvmdash_dashboards d
+         INNER JOIN gvmdash_permissions dp ON dp.dashboard_id = d.id AND dp.user_id = ?
          ORDER BY d.updated_at DESC`,
         [req.user?.id]
       );
@@ -187,7 +187,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', validateId, async (req, res) => {
   try {
     const [rows] = await db.query(
-      'SELECT id, nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, chart_config, column_hints, refresh_interval, connection_id, extra_charts, created_at, updated_at FROM dashboards WHERE id = ?',
+      'SELECT id, nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, chart_config, column_hints, refresh_interval, connection_id, extra_charts, created_at, updated_at FROM gvmdash_dashboards WHERE id = ?',
       [req.params.id]
     );
     if (!rows || rows.length === 0) return res.status(404).json({ error: 'Dashboard not found' });
@@ -195,7 +195,7 @@ router.get('/:id', validateId, async (req, res) => {
     // Non-admin: verify permission
     if (req.user?.nivel !== 'admin') {
       const [perm] = await db.query(
-        'SELECT 1 FROM dashboard_permissions WHERE user_id = ? AND dashboard_id = ?',
+        'SELECT 1 FROM gvmdash_permissions WHERE user_id = ? AND dashboard_id = ?',
         [req.user?.id, req.params.id]
       );
       if (!perm || perm.length === 0)
@@ -243,11 +243,11 @@ router.post('/', adminOnly, async (req, res) => {
       ? JSON.stringify(extra_charts) : null;
 
     const [result] = await db.query(
-      'INSERT INTO dashboards (nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, column_hints, refresh_interval, connection_id, extra_charts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO gvmdash_dashboards (nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, column_hints, refresh_interval, connection_id, extra_charts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [nome, descricaoVal, sql_query, chartSql, serializeParams(params), chart_type || 'bar', serializeLinks(validatedLinks), serializeActions(validatedActions), hintsVal, refreshVal, connId, extraChartsVal]
     );
     const [rows] = await db.query(
-      'SELECT id, nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, chart_config, column_hints, refresh_interval, connection_id, extra_charts, created_at, updated_at FROM dashboards WHERE id = ?',
+      'SELECT id, nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, chart_config, column_hints, refresh_interval, connection_id, extra_charts, created_at, updated_at FROM gvmdash_dashboards WHERE id = ?',
       [result.insertId]
     );
     await auditLog(req, 'create', 'dashboard', result.insertId, nome);
@@ -292,13 +292,13 @@ router.put('/:id', adminOnly, validateId, async (req, res) => {
       ? JSON.stringify(extra_charts) : null;
 
     const [result] = await db.query(
-      'UPDATE dashboards SET nome = ?, descricao = ?, sql_query = ?, chart_sql_query = ?, params = ?, chart_type = ?, links = ?, actions = ?, column_hints = ?, refresh_interval = ?, connection_id = ?, extra_charts = ? WHERE id = ?',
+      'UPDATE gvmdash_dashboards SET nome = ?, descricao = ?, sql_query = ?, chart_sql_query = ?, params = ?, chart_type = ?, links = ?, actions = ?, column_hints = ?, refresh_interval = ?, connection_id = ?, extra_charts = ? WHERE id = ?',
       [nome, descricaoVal, sql_query, chartSql, serializeParams(params), chart_type || 'bar', serializeLinks(validatedLinks), serializeActions(validatedActions), hintsVal, refreshVal, connId, extraChartsVal, req.params.id]
     );
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Dashboard not found' });
 
     const [rows] = await db.query(
-      'SELECT id, nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, chart_config, column_hints, refresh_interval, connection_id, extra_charts, created_at, updated_at FROM dashboards WHERE id = ?',
+      'SELECT id, nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, chart_config, column_hints, refresh_interval, connection_id, extra_charts, created_at, updated_at FROM gvmdash_dashboards WHERE id = ?',
       [req.params.id]
     );
     await auditLog(req, 'update', 'dashboard', Number(req.params.id), nome);
@@ -326,7 +326,7 @@ router.patch('/:id/chart-config', adminOnly, validateId, async (req, res) => {
 
     const value = chart_config ? JSON.stringify(chart_config) : null;
     const [result] = await db.query(
-      'UPDATE dashboards SET chart_config = ? WHERE id = ?',
+      'UPDATE gvmdash_dashboards SET chart_config = ? WHERE id = ?',
       [value, req.params.id]
     );
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Dashboard not found' });
@@ -342,7 +342,7 @@ router.patch('/:id/extra-chart-config', adminOnly, validateId, async (req, res) 
   try {
     const { extra_charts } = req.body;
     const value = extra_charts && Array.isArray(extra_charts) ? JSON.stringify(extra_charts) : null;
-    const [result] = await db.query('UPDATE dashboards SET extra_charts = ? WHERE id = ?', [value, req.params.id]);
+    const [result] = await db.query('UPDATE gvmdash_dashboards SET extra_charts = ? WHERE id = ?', [value, req.params.id]);
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Dashboard not found' });
     res.json({ ok: true });
   } catch (err) {
@@ -354,7 +354,7 @@ router.patch('/:id/extra-chart-config', adminOnly, validateId, async (req, res) 
 // DELETE /:id — A1: admin only
 router.delete('/:id', adminOnly, validateId, async (req, res) => {
   try {
-    const [result] = await db.query('DELETE FROM dashboards WHERE id = ?', [req.params.id]);
+    const [result] = await db.query('DELETE FROM gvmdash_dashboards WHERE id = ?', [req.params.id]);
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Dashboard not found' });
     await auditLog(req, 'delete', 'dashboard', Number(req.params.id));
     res.json({ message: 'Dashboard deleted successfully' });

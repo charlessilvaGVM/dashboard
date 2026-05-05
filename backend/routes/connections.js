@@ -15,7 +15,7 @@ router.use(adminOnly);
 
 async function ensureTable() {
   await db.query(`
-    CREATE TABLE IF NOT EXISTS db_connections (
+    CREATE TABLE IF NOT EXISTS gvmdash_connections (
       id         INT AUTO_INCREMENT PRIMARY KEY,
       nome       VARCHAR(255) NOT NULL,
       host       VARCHAR(255) NOT NULL,
@@ -34,7 +34,7 @@ ensureTable();
 router.get('/', async (req, res) => {
   try {
     const [rows] = await db.query(
-      'SELECT id, nome, host, port, `database`, user, ativo, created_at FROM db_connections ORDER BY nome'
+      'SELECT id, nome, host, port, `database`, user, ativo, created_at FROM gvmdash_connections ORDER BY nome'
     );
     res.json(rows);
   } catch (err) {
@@ -49,7 +49,7 @@ router.get('/:id', async (req, res) => {
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'ID inválido' });
   try {
     const [rows] = await db.query(
-      'SELECT id, nome, host, port, `database`, user, ativo, created_at FROM db_connections WHERE id = ?',
+      'SELECT id, nome, host, port, `database`, user, ativo, created_at FROM gvmdash_connections WHERE id = ?',
       [id]
     );
     if (!rows.length) return res.status(404).json({ error: 'Conexão não encontrada' });
@@ -67,11 +67,11 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'nome, host, database e user são obrigatórios' });
   try {
     const [result] = await db.query(
-      'INSERT INTO db_connections (nome, host, port, `database`, user, password, ativo) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO gvmdash_connections (nome, host, port, `database`, user, password, ativo) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [nome.trim(), host.trim(), parseInt(port) || 3306, database.trim(), user.trim(), password || '', ativo !== false ? 1 : 0]
     );
     const [rows] = await db.query(
-      'SELECT id, nome, host, port, `database`, user, ativo, created_at FROM db_connections WHERE id = ?',
+      'SELECT id, nome, host, port, `database`, user, ativo, created_at FROM gvmdash_connections WHERE id = ?',
       [result.insertId]
     );
     res.status(201).json(rows[0]);
@@ -92,17 +92,17 @@ router.put('/:id', async (req, res) => {
     // if password is blank, keep existing
     let query, vals;
     if (password && password.trim()) {
-      query = 'UPDATE db_connections SET nome=?, host=?, port=?, `database`=?, user=?, password=?, ativo=? WHERE id=?';
+      query = 'UPDATE gvmdash_connections SET nome=?, host=?, port=?, `database`=?, user=?, password=?, ativo=? WHERE id=?';
       vals  = [nome.trim(), host.trim(), parseInt(port)||3306, database.trim(), user.trim(), password.trim(), ativo!==false?1:0, id];
     } else {
-      query = 'UPDATE db_connections SET nome=?, host=?, port=?, `database`=?, user=?, ativo=? WHERE id=?';
+      query = 'UPDATE gvmdash_connections SET nome=?, host=?, port=?, `database`=?, user=?, ativo=? WHERE id=?';
       vals  = [nome.trim(), host.trim(), parseInt(port)||3306, database.trim(), user.trim(), ativo!==false?1:0, id];
     }
     const [result] = await db.query(query, vals);
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Conexão não encontrada' });
     db.invalidateConnectionPool(id);
     const [rows] = await db.query(
-      'SELECT id, nome, host, port, `database`, user, ativo, created_at FROM db_connections WHERE id = ?',
+      'SELECT id, nome, host, port, `database`, user, ativo, created_at FROM gvmdash_connections WHERE id = ?',
       [id]
     );
     res.json(rows[0]);
@@ -117,7 +117,7 @@ router.delete('/:id', async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'ID inválido' });
   try {
-    const [result] = await db.query('DELETE FROM db_connections WHERE id = ?', [id]);
+    const [result] = await db.query('DELETE FROM gvmdash_connections WHERE id = ?', [id]);
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Conexão não encontrada' });
     db.invalidateConnectionPool(id);
     res.json({ message: 'Conexão excluída' });

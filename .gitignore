@@ -27,3 +27,9 @@ Thumbs.db
 
 # Claude internal
 .claude/
+
+# Scripts locais de instalacao
+instalador.ps1
+
+.gitignore
+.md

@@ -22,7 +22,7 @@ async function ensureSchema() {
   }
 
   await db.query(`
-    CREATE TABLE IF NOT EXISTS dashboard_permissions (
+    CREATE TABLE IF NOT EXISTS gvmdash_permissions (
       id           INT AUTO_INCREMENT PRIMARY KEY,
       user_id      INT NOT NULL,
       dashboard_id INT NOT NULL,
@@ -178,7 +178,7 @@ router.delete('/:id', adminOnly, validateId, async (req, res) => {
 router.get('/:id/permissions', adminOnly, validateId, async (req, res) => {
   try {
     const [rows] = await db.query(
-      'SELECT dashboard_id FROM dashboard_permissions WHERE user_id = ?',
+      'SELECT dashboard_id FROM gvmdash_permissions WHERE user_id = ?',
       [req.params.id]
     );
     res.json(rows.map(r => r.dashboard_id));
@@ -204,15 +204,15 @@ router.put('/:id/permissions', adminOnly, validateId, async (req, res) => {
         return res.status(400).json({ error: 'dashboard_ids contém valores inválidos' });
     }
 
-    await db.query('DELETE FROM dashboard_permissions WHERE user_id = ?', [userId]);
+    await db.query('DELETE FROM gvmdash_permissions WHERE user_id = ?', [userId]);
 
     if (Array.isArray(dashboard_ids) && dashboard_ids.length > 0) {
       const values = dashboard_ids.map(did => [userId, Number(did)]);
-      await db.query('INSERT INTO dashboard_permissions (user_id, dashboard_id) VALUES ?', [values]);
+      await db.query('INSERT INTO gvmdash_permissions (user_id, dashboard_id) VALUES ?', [values]);
     }
 
     const [rows] = await db.query(
-      'SELECT dashboard_id FROM dashboard_permissions WHERE user_id = ?',
+      'SELECT dashboard_id FROM gvmdash_permissions WHERE user_id = ?',
       [userId]
     );
     // N6 — Audit log para alteração de permissões

@@ -3,7 +3,7 @@ const db = require('./db');
 
 async function ensureAuditTable() {
   await db.query(`
-    CREATE TABLE IF NOT EXISTS audit_logs (
+    CREATE TABLE IF NOT EXISTS gvmdash_audit_logs (
       id          INT AUTO_INCREMENT PRIMARY KEY,
       user_id     INT,
       usuario     VARCHAR(100),
@@ -28,7 +28,7 @@ function getIp(req) {
 async function auditLog(req, action, resource, resourceId = null, detail = null) {
   try {
     await db.query(
-      'INSERT INTO audit_logs (user_id, usuario, action, resource, resource_id, detail, ip) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO gvmdash_audit_logs (user_id, usuario, action, resource, resource_id, detail, ip) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [req.user?.id ?? null, req.user?.usuario ?? null, action, resource, resourceId, detail, getIp(req)]
     );
   } catch (e) {

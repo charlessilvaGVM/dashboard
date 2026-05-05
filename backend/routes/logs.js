@@ -15,7 +15,7 @@ router.use(adminOnly);
 
 async function ensureTable() {
   await db.query(`
-    CREATE TABLE IF NOT EXISTS execution_logs (
+    CREATE TABLE IF NOT EXISTS gvmdash_exec_logs (
       id               INT AUTO_INCREMENT PRIMARY KEY,
       dashboard_id     INT DEFAULT NULL,
       dashboard_nome   VARCHAR(255) DEFAULT NULL,
@@ -54,13 +54,13 @@ router.get('/', async (req, res) => {
     const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
     const [[{ total }]] = await db.query(
-      `SELECT COUNT(*) as total FROM execution_logs ${whereClause}`,
+      `SELECT COUNT(*) as total FROM gvmdash_exec_logs ${whereClause}`,
       vals
     );
 
     const [rows] = await db.query(
       `SELECT id, dashboard_id, dashboard_nome, user_id, usuario, execution_time_ms, row_count, executed_at
-       FROM execution_logs ${whereClause}
+       FROM gvmdash_exec_logs ${whereClause}
        ORDER BY executed_at DESC
        LIMIT ? OFFSET ?`,
       [...vals, limit, offset]
@@ -76,7 +76,7 @@ router.get('/', async (req, res) => {
 // DELETE /clear — clear all logs (admin only)
 router.delete('/clear', async (req, res) => {
   try {
-    await db.query('TRUNCATE TABLE execution_logs');
+    await db.query('TRUNCATE TABLE gvmdash_exec_logs');
     res.json({ message: 'Logs apagados' });
   } catch (err) {
     console.error('[logs/DELETE /clear]', err);

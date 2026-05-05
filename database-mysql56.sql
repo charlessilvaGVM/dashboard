@@ -1,6 +1,8 @@
 -- =============================================================================
--- GVM Dashboard — Script de banco de dados
+-- GVM Dashboard — Script de banco de dados (compatível MySQL 5.6)
 -- Banco: gvmdashboard (configurado em backend/.env → DB_NAME)
+-- Diferença do database.sql padrão: JSON substituído por LONGTEXT
+--   e removidos os ALTER TABLE IF NOT EXISTS (não suportados no MySQL 5.6)
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
@@ -16,35 +18,27 @@ CREATE TABLE IF NOT EXISTS gvmdash_users (
   created_at TIMESTAMP                       DEFAULT CURRENT_TIMESTAMP
 );
 
--- Adicionar coluna nivel caso a tabela já existia antes desta versão
-ALTER TABLE gvmdash_users ADD COLUMN IF NOT EXISTS nivel ENUM('admin','usuario') NOT NULL DEFAULT 'usuario';
-ALTER TABLE gvmdash_users ADD COLUMN IF NOT EXISTS nome  VARCHAR(255) DEFAULT NULL;
-
 -- -----------------------------------------------------------------------------
 -- 2. TABELA DE DASHBOARDS
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS gvmdash_dashboards (
   id               INT AUTO_INCREMENT PRIMARY KEY,
-  nome             VARCHAR(255) NOT NULL,
+  nome             VARCHAR(255)  NOT NULL,
   descricao        TEXT,
-  sql_query        TEXT         NOT NULL,
-  chart_sql_query  TEXT         DEFAULT NULL,
-  params           LONGTEXT     DEFAULT NULL,
-  chart_type       VARCHAR(20)  DEFAULT 'bar',
-  links            LONGTEXT     DEFAULT NULL,
-  actions          LONGTEXT     DEFAULT NULL,
-  chart_config     LONGTEXT     DEFAULT NULL,
-  column_hints     LONGTEXT     DEFAULT NULL,
-  refresh_interval INT          DEFAULT 0,
-  connection_id    INT          DEFAULT NULL,
-  extra_charts     LONGTEXT     DEFAULT NULL,
-  created_at       TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
-  updated_at       TIMESTAMP    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  sql_query        TEXT          NOT NULL,
+  chart_sql_query  TEXT          DEFAULT NULL,
+  params           LONGTEXT      DEFAULT NULL,
+  chart_type       VARCHAR(20)   DEFAULT 'bar',
+  links            LONGTEXT      DEFAULT NULL,
+  actions          LONGTEXT      DEFAULT NULL,
+  chart_config     LONGTEXT      DEFAULT NULL,
+  column_hints     LONGTEXT      DEFAULT NULL,
+  refresh_interval INT           DEFAULT 0,
+  connection_id    INT           DEFAULT NULL,
+  extra_charts     LONGTEXT      DEFAULT NULL,
+  created_at       TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+  updated_at       TIMESTAMP     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
-
--- Adicionar coluna params caso a tabela já existia antes desta versão
-ALTER TABLE gvmdash_dashboards ADD COLUMN IF NOT EXISTS params LONGTEXT DEFAULT NULL;
-ALTER TABLE gvmdash_dashboards ADD COLUMN IF NOT EXISTS column_hints LONGTEXT DEFAULT NULL;
 
 -- -----------------------------------------------------------------------------
 -- 3. TABELA DE PERMISSÕES (usuário x dashboard)

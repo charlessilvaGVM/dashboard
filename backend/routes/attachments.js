@@ -60,7 +60,7 @@ const uploadLimiter = rateLimit({
 // ── table migration ───────────────────────────────────────────────────────────
 async function ensureTable() {
   await db.query(`
-    CREATE TABLE IF NOT EXISTS dashboard_attachments (
+    CREATE TABLE IF NOT EXISTS gvmdash_attachments (
       id            INT AUTO_INCREMENT PRIMARY KEY,
       dashboard_id  INT NOT NULL,
       filename      VARCHAR(255) NOT NULL,
@@ -94,7 +94,7 @@ function validateFileId(req, res, next) {
 async function checkDashboardPermission(userId, nivel, dashboardId) {
   if (nivel === 'admin') return true;
   const [rows] = await db.query(
-    'SELECT 1 FROM dashboard_permissions WHERE user_id = ? AND dashboard_id = ?',
+    'SELECT 1 FROM gvmdash_permissions WHERE user_id = ? AND dashboard_id = ?',
     [userId, dashboardId]
   );
   return rows && rows.length > 0;
@@ -111,7 +111,7 @@ router.get('/:dashboardId', validateDashboardId, async (req, res) => {
       return res.status(403).json({ error: 'Acesso não autorizado a este dashboard' });
 
     const [rows] = await db.query(
-      'SELECT id, filename, original_name, size, created_at FROM dashboard_attachments WHERE dashboard_id = ? ORDER BY created_at DESC',
+      'SELECT id, filename, original_name, size, created_at FROM gvmdash_attachments WHERE dashboard_id = ? ORDER BY created_at DESC',
       [req.params.dashboardId]
     );
     res.json(rows);
@@ -136,7 +136,7 @@ router.post('/:dashboardId', uploadLimiter, validateDashboardId, upload.single('
 
     const { originalname, filename, size } = req.file;
     const [result] = await db.query(
-      'INSERT INTO dashboard_attachments (dashboard_id, filename, original_name, size) VALUES (?, ?, ?, ?)',
+      'INSERT INTO gvmdash_attachments (dashboard_id, filename, original_name, size) VALUES (?, ?, ?, ?)',
       [req.params.dashboardId, filename, originalname, size]
     );
     await auditLog(req, 'upload', 'attachment', result.insertId, `dashboard:${req.params.dashboardId} file:${originalname}`);
@@ -152,7 +152,7 @@ router.post('/:dashboardId', uploadLimiter, validateDashboardId, upload.single('
 router.get('/file/:id/download', validateFileId, async (req, res) => {
   try {
     const [rows] = await db.query(
-      'SELECT filename, original_name, dashboard_id FROM dashboard_attachments WHERE id = ?',
+      'SELECT filename, original_name, dashboard_id FROM gvmdash_attachments WHERE id = ?',
       [req.params.id]
     );
     if (!rows || rows.length === 0) return res.status(404).json({ error: 'Arquivo não encontrado' });
@@ -187,11 +187,11 @@ router.delete('/file/:id', validateFileId, async (req, res) => {
   if (req.user?.nivel !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
   try {
     const [rows] = await db.query(
-      'SELECT filename FROM dashboard_attachments WHERE id = ?',
+      'SELECT filename FROM gvmdash_attachments WHERE id = ?',
       [req.params.id]
     );
     if (!rows || rows.length === 0) return res.status(404).json({ error: 'Arquivo não encontrado' });
-    await db.query('DELETE FROM dashboard_attachments WHERE id = ?', [req.params.id]);
+    await db.query('DELETE FROM gvmdash_attachments WHERE id = ?', [req.params.id]);
     fs.unlink(path.join(UPLOADS_DIR, rows[0].filename), () => {});
     await auditLog(req, 'delete', 'attachment', Number(req.params.id));
     res.json({ message: 'Arquivo removido' });

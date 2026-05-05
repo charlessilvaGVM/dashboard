@@ -133,7 +133,7 @@ router.post('/execute', queryLimiter, async (req, res) => {
   if (dashboard_id) {
     try {
       const [dashRows] = await db.query(
-        'SELECT nome, connection_id FROM dashboards WHERE id = ?',
+        'SELECT nome, connection_id FROM gvmdash_dashboards WHERE id = ?',
         [dashboard_id]
       );
       if (dashRows && dashRows.length > 0) {
@@ -173,7 +173,7 @@ router.post('/execute', queryLimiter, async (req, res) => {
     if (LOG_EXECUTIONS && dashboard_id) {
       try {
         await db.query(
-          'INSERT INTO execution_logs (dashboard_id, dashboard_nome, user_id, usuario, execution_time_ms, row_count) VALUES (?, ?, ?, ?, ?, ?)',
+          'INSERT INTO gvmdash_exec_logs (dashboard_id, dashboard_nome, user_id, usuario, execution_time_ms, row_count) VALUES (?, ?, ?, ?, ?, ?)',
           [
             dashboard_id,
             dashboardNome,
