@@ -218,12 +218,20 @@ export default function DashboardCreate() {
     }
   }, [existing]);
 
+  // remove combo @params do SQL antes de testar (o backend substitui tudo por NULL,
+  // mas params combo são trechos SQL — NULL causaria erro de sintaxe)
+  const stripCombosForTest = (sql: string) =>
+    paramRows.filter(p => p.type === 'combo' && p.name.trim()).reduce(
+      (s, p) => s.replace(new RegExp(`@${p.name}(?![a-zA-Z0-9_])`, 'gi'), ''),
+      sql
+    );
+
   // ── test sql ──────────────────────────────────────────────────────────
   const handleTestSql = async () => {
     if (!sqlQuery.trim()) return;
     setSqlTest({ status: 'testing' });
     try {
-      const result = await testQuery(sqlQuery.trim());
+      const result = await testQuery(stripCombosForTest(sqlQuery.trim()));
       setSqlTest(result.valid ? { status: 'ok', message: 'Sintaxe válida' } : { status: 'error', message: result.error || 'Erro de sintaxe' });
     } catch (err: unknown) {
       setSqlTest({ status: 'error', message: err instanceof Error ? err.message : 'Erro ao testar' });
@@ -234,7 +242,7 @@ export default function DashboardCreate() {
     if (!chartSqlQuery.trim()) return;
     setChartSqlTest({ status: 'testing' });
     try {
-      const result = await testQuery(chartSqlQuery.trim());
+      const result = await testQuery(stripCombosForTest(chartSqlQuery.trim()));
       setChartSqlTest(result.valid ? { status: 'ok', message: 'Sintaxe válida' } : { status: 'error', message: result.error || 'Erro de sintaxe' });
     } catch (err: unknown) {
       setChartSqlTest({ status: 'error', message: err instanceof Error ? err.message : 'Erro ao testar' });
@@ -833,7 +841,7 @@ export default function DashboardCreate() {
                               onClick={async () => {
                                 setExtraChartRows(rows => rows.map((r, i) => i === idx ? { ...r, sqlTest: { status: 'testing' } } : r));
                                 try {
-                                  const res = await testQuery(ec.sql.trim());
+                                  const res = await testQuery(stripCombosForTest(ec.sql.trim()));
                                   setExtraChartRows(rows => rows.map((r, i) => i === idx ? { ...r, sqlTest: res.valid ? { status: 'ok', message: 'Sintaxe válida' } : { status: 'error', message: res.error || 'Erro' } } : r));
                                 } catch (e: unknown) {
                                   setExtraChartRows(rows => rows.map((r, i) => i === idx ? { ...r, sqlTest: { status: 'error', message: e instanceof Error ? e.message : 'Erro' } } : r));
