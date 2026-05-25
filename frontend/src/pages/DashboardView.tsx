@@ -25,7 +25,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   getDashboard, executeQuery, getConfig, isAdmin, saveChartConfig, saveExtraChartConfig,
-  extractSqlParams, getParamDefault,
+  extractSqlParams, getParamDefault, applyComboParamsToSql,
   type QueryResult, type DashboardParam, type ChartType,
   type DashboardLink, type DashboardAction, type ChartConfig, type ExtraChart,
 } from '@/services/api';
@@ -381,11 +381,19 @@ export default function DashboardView() {
   }, [id]);
 
   // C2 — passa SQL template + params; backend substitui via prepared statement
+  // Combo params são substituídos diretamente no SQL antes do envio (são trechos SQL, não valores)
   const handleExecute = useCallback(() => {
     if (!dashboard?.sql_query) return;
-    const extraSqls = (dashboard.extra_charts ?? []).map(c => c.sql_query);
-    runQuery(dashboard.sql_query, params, dashboard.chart_sql_query ?? undefined, extraSqls);
-  }, [dashboard?.sql_query, dashboard?.chart_sql_query, dashboard?.extra_charts, params, runQuery]);
+    const allTypedParams = dashboard.params ?? [];
+    const { sql: sql1, nonComboParams } = applyComboParamsToSql(dashboard.sql_query, params, allTypedParams);
+    const chartSql = dashboard.chart_sql_query
+      ? applyComboParamsToSql(dashboard.chart_sql_query, params, allTypedParams).sql
+      : undefined;
+    const extraSqls = (dashboard.extra_charts ?? []).map(c =>
+      applyComboParamsToSql(c.sql_query, params, allTypedParams).sql
+    );
+    runQuery(sql1, nonComboParams, chartSql, extraSqls);
+  }, [dashboard?.sql_query, dashboard?.chart_sql_query, dashboard?.extra_charts, dashboard?.params, params, runQuery]);
 
   // stable ref so intervals always call latest version
   const handleExecuteRef = useRef(handleExecute);
@@ -414,8 +422,15 @@ export default function DashboardView() {
     if ([...searchParams.keys()].length > 0) setSearchParams({}, { replace: true });
 
     setParams(initial);
-    const extraSqls = (dashboard.extra_charts ?? []).map(c => c.sql_query);
-    runQuery(dashboard.sql_query, initial, dashboard.chart_sql_query ?? undefined, extraSqls);
+    const allTypedParams = dashboard.params ?? [];
+    const { sql: sql1, nonComboParams } = applyComboParamsToSql(dashboard.sql_query, initial, allTypedParams);
+    const chartSql = dashboard.chart_sql_query
+      ? applyComboParamsToSql(dashboard.chart_sql_query, initial, allTypedParams).sql
+      : undefined;
+    const extraSqls = (dashboard.extra_charts ?? []).map(c =>
+      applyComboParamsToSql(c.sql_query, initial, allTypedParams).sql
+    );
+    runQuery(sql1, nonComboParams, chartSql, extraSqls);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dashboard?.id]);
 
@@ -708,6 +723,12 @@ export default function DashboardView() {
                 {typedParams.map(p => {
                   const inputType = paramInputType(p.type);
                   const step = p.type === 'decimal' ? '0.01' : undefined;
+                  const fieldStyle: React.CSSProperties = {
+                    width: '100%', height: '2.25rem', padding: '0 0.625rem',
+                    border: '1px solid #d1d5db', borderRadius: '0.375rem',
+                    fontSize: '0.875rem', color: '#111827', backgroundColor: '#ffffff',
+                    outline: 'none', boxSizing: 'border-box',
+                  };
                   return (
                     <div key={p.name}>
                       <label
@@ -718,26 +739,29 @@ export default function DashboardView() {
                           ? <>{p.label} <span style={{ fontFamily: 'monospace', color: '#6b7280', fontSize: '0.75rem' }}>(@{p.name})</span></>
                           : <span style={{ fontFamily: 'monospace', color: '#2563eb' }}>@{p.name}</span>}
                       </label>
-                      <input
-                        id={`param-${p.name}`}
-                        type={inputType}
-                        step={step}
-                        value={params[p.name] ?? ''}
-                        onChange={e => setParams(prev => ({ ...prev, [p.name]: e.target.value }))}
-                        onKeyDown={e => { if (e.key === 'Enter') handleExecute(); }}
-                        style={{
-                          width: '100%',
-                          height: '2.25rem',
-                          padding: '0 0.625rem',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '0.375rem',
-                          fontSize: '0.875rem',
-                          color: '#111827',
-                          backgroundColor: '#ffffff',
-                          outline: 'none',
-                          boxSizing: 'border-box',
-                        }}
-                      />
+                      {p.type === 'combo' ? (
+                        <select
+                          id={`param-${p.name}`}
+                          value={params[p.name] ?? ''}
+                          onChange={e => setParams(prev => ({ ...prev, [p.name]: e.target.value }))}
+                          style={{ ...fieldStyle, cursor: 'pointer' }}
+                        >
+                          <option value="">Nenhum</option>
+                          {(p.comboOptions ?? []).map((opt, i) => (
+                            <option key={i} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          id={`param-${p.name}`}
+                          type={inputType}
+                          step={step}
+                          value={params[p.name] ?? ''}
+                          onChange={e => setParams(prev => ({ ...prev, [p.name]: e.target.value }))}
+                          onKeyDown={e => { if (e.key === 'Enter') handleExecute(); }}
+                          style={fieldStyle}
+                        />
+                      )}
                     </div>
                   );
                 })}

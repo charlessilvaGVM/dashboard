@@ -58,13 +58,19 @@ export async function getConfig(): Promise<AppConfig> {
 }
 
 // ── Dashboard param types ─────────────────────────────────────────────────────
-export type ParamType = 'date' | 'string' | 'integer' | 'decimal';
+export type ParamType = 'date' | 'string' | 'integer' | 'decimal' | 'combo';
+
+export interface ComboOption {
+  label: string;
+  value: string; // trecho SQL que será injetado no lugar do @param
+}
 
 export interface DashboardParam {
   name: string;
   label: string;
   type: ParamType;
   defaultValue: string;
+  comboOptions?: ComboOption[];
 }
 
 export type ChartType = 'bar' | 'line' | 'area' | 'pie' | 'donut' | 'none';
@@ -174,6 +180,31 @@ export function applyParamsToSql(sql: string, params: Record<string, string>): s
     result = result.replace(new RegExp(`@${key}(?![a-zA-Z0-9_])`, 'gi'), formatted);
   }
   return result;
+}
+
+// Substitui @params do tipo combo diretamente no SQL (trechos SQL, não valores de dados).
+// Retorna o SQL processado e os params restantes (sem os combos) para prepared statements.
+export function applyComboParamsToSql(
+  sql: string,
+  params: Record<string, string>,
+  typedParams: DashboardParam[]
+): { sql: string; nonComboParams: Record<string, string> } {
+  const comboNames = new Set(
+    typedParams.filter(p => p.type === 'combo').map(p => p.name)
+  );
+  let processedSql = sql;
+  const nonComboParams: Record<string, string> = {};
+  for (const [name, value] of Object.entries(params)) {
+    if (comboNames.has(name)) {
+      processedSql = processedSql.replace(
+        new RegExp(`@${name}(?![a-zA-Z0-9_])`, 'gi'),
+        value.trim()
+      );
+    } else {
+      nonComboParams[name] = value;
+    }
+  }
+  return { sql: processedSql, nonComboParams };
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────

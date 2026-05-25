@@ -10,11 +10,12 @@ import {
   createDashboard, updateDashboard, getDashboard, getDashboards, testQuery,
   getConnections,
   extractSqlParams, guessParamType, getParamDefault,
-  type DashboardParam, type ParamType, type ChartType, type DashboardLink, type DashboardAction, type ExtraChart,
+  type DashboardParam, type ParamType, type ChartType, type DashboardLink, type DashboardAction, type ExtraChart, type ComboOption,
 } from '@/services/api';
 import { toast } from '@/hooks/use-toast';
 
-interface ParamRow   extends DashboardParam   { _id: string; }
+interface ComboOptRow extends ComboOption { _id: string; }
+interface ParamRow   extends DashboardParam   { _id: string; _comboOpts: ComboOptRow[]; }
 interface LinkRow    extends DashboardLink    { _id: string; }
 interface ActionRow  extends DashboardAction  { _id: string; }
 
@@ -105,7 +106,7 @@ const CHART_OPTIONS: { value: ChartType; label: string; icon: React.ReactNode; p
 ];
 
 const PARAM_TYPE_LABELS: Record<ParamType, string> = {
-  date: 'Data', string: 'Texto', integer: 'Inteiro', decimal: 'Decimal',
+  date: 'Data', string: 'Texto', integer: 'Inteiro', decimal: 'Decimal', combo: 'Combo',
 };
 
 function inputTypeFor(type: ParamType): string {
@@ -195,7 +196,11 @@ export default function DashboardCreate() {
         setChartSqlQuery(existing.chart_sql_query);
       }
       setChartType((existing.chart_type as ChartType) || 'bar');
-      setParamRows((existing.params || []).map(p => ({ ...p, _id: Math.random().toString(36).slice(2) })));
+      setParamRows((existing.params || []).map(p => ({
+        ...p,
+        _id: Math.random().toString(36).slice(2),
+        _comboOpts: (p.comboOptions || []).map(o => ({ ...o, _id: Math.random().toString(36).slice(2) })),
+      })));
       setLinkRows((existing.links || []).map(l => ({ ...l, _id: Math.random().toString(36).slice(2) })));
       setActionRows((existing.actions || []).map(a => ({ ...a, _id: Math.random().toString(36).slice(2) })));
       setHintRows(Object.entries(existing.column_hints || {}).map(([col, text]) => ({
@@ -247,11 +252,11 @@ export default function DashboardCreate() {
     }
     setParamRows(prev => [...prev, ...toAdd.map(name => {
       const type = guessParamType(name);
-      return { _id: Math.random().toString(36).slice(2), name, label: name.replace(/_/g, ' '), type, defaultValue: getParamDefault(name, type) };
+      return { _id: Math.random().toString(36).slice(2), name, label: name.replace(/_/g, ' '), type, defaultValue: getParamDefault(name, type), _comboOpts: [] };
     })]);
   };
 
-  const addParam    = () => setParamRows(prev => [...prev, { _id: Math.random().toString(36).slice(2), name: '', label: '', type: 'string', defaultValue: '' }]);
+  const addParam    = () => setParamRows(prev => [...prev, { _id: Math.random().toString(36).slice(2), name: '', label: '', type: 'string', defaultValue: '', _comboOpts: [] }]);
   const removeParam = (_id: string) => setParamRows(prev => prev.filter(p => p._id !== _id));
   const updateParam = (_id: string, field: keyof ParamRow, value: string) => {
     setParamRows(prev => prev.map(p => {
@@ -261,6 +266,16 @@ export default function DashboardCreate() {
       return updated;
     }));
   };
+
+  const addComboOpt = (paramId: string) => setParamRows(prev => prev.map(p =>
+    p._id !== paramId ? p : { ...p, _comboOpts: [...p._comboOpts, { _id: Math.random().toString(36).slice(2), label: '', value: '' }] }
+  ));
+  const removeComboOpt = (paramId: string, optId: string) => setParamRows(prev => prev.map(p =>
+    p._id !== paramId ? p : { ...p, _comboOpts: p._comboOpts.filter(o => o._id !== optId) }
+  ));
+  const updateComboOpt = (paramId: string, optId: string, field: 'label' | 'value', val: string) => setParamRows(prev => prev.map(p =>
+    p._id !== paramId ? p : { ...p, _comboOpts: p._comboOpts.map(o => o._id !== optId ? o : { ...o, [field]: val }) }
+  ));
 
   // ── link helpers ──────────────────────────────────────────────────────
   const addLink    = () => setLinkRows(prev => [...prev, { _id: Math.random().toString(36).slice(2), clickColumn: '', valueColumn: '', label: '', sql: '', paramName: '' }]);
@@ -287,7 +302,10 @@ export default function DashboardCreate() {
     sql_query: sqlQuery.trim(),
     chart_sql_query: chartSqlEnabled && chartSqlQuery.trim() ? chartSqlQuery.trim() : null,
     chart_type: chartType,
-    params: paramRows.filter(p => p.name.trim()).map(({ _id: _, ...p }) => p) as DashboardParam[],
+    params: paramRows.filter(p => p.name.trim()).map(({ _id: _, _comboOpts, ...p }) => ({
+      ...p,
+      comboOptions: p.type === 'combo' ? _comboOpts.filter(o => o.label.trim()).map(({ _id: __, ...o }) => o) : undefined,
+    })) as DashboardParam[],
     links: linkRows
       .filter(l => l.clickColumn.trim() && l.valueColumn.trim() && l.sql.trim() && l.paramName.trim())
       .map(({ _id: _, ...l }) => l) as DashboardLink[],
@@ -571,36 +589,79 @@ export default function DashboardCreate() {
                           </thead>
                           <tbody>
                             {paramRows.map((p, idx) => (
-                              <tr key={p._id} className={`border-b last:border-0 ${idx % 2 === 1 ? 'bg-muted/10' : ''}`}>
-                                <td className="px-3 py-2">
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-                                    <span style={{ fontFamily: 'monospace', color: '#2563eb', fontSize: '0.875rem' }}>@</span>
-                                    <input type="text" value={p.name} placeholder="nome"
-                                      onChange={e => updateParam(p._id, 'name', e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
-                                      style={{ ...inputStyle, fontFamily: 'monospace', width: '100%' }} />
-                                  </div>
-                                </td>
-                                <td className="px-3 py-2">
-                                  <input type="text" placeholder="Ex: Data Inicial" value={p.label}
-                                    onChange={e => updateParam(p._id, 'label', e.target.value)} style={inputStyle} />
-                                </td>
-                                <td className="px-3 py-2">
-                                  <select value={p.type} onChange={e => updateParam(p._id, 'type', e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }}>
-                                    {(Object.entries(PARAM_TYPE_LABELS) as [ParamType, string][]).map(([v, l]) => (
-                                      <option key={v} value={v}>{l}</option>
-                                    ))}
-                                  </select>
-                                </td>
-                                <td className="px-3 py-2">
-                                  <input type={inputTypeFor(p.type)} step={p.type === 'decimal' ? '0.01' : p.type === 'integer' ? '1' : undefined}
-                                    value={p.defaultValue} onChange={e => updateParam(p._id, 'defaultValue', e.target.value)} style={inputStyle} />
-                                </td>
-                                <td className="px-2 py-2 text-center">
-                                  <button type="button" onClick={() => removeParam(p._id)} className="text-muted-foreground hover:text-destructive transition-colors">
-                                    <Trash2 className="h-4 w-4" />
-                                  </button>
-                                </td>
-                              </tr>
+                              <React.Fragment key={p._id}>
+                                <tr className={`border-b ${p.type === 'combo' ? '' : 'last:border-0'} ${idx % 2 === 1 ? 'bg-muted/10' : ''}`}>
+                                  <td className="px-3 py-2">
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                      <span style={{ fontFamily: 'monospace', color: '#2563eb', fontSize: '0.875rem' }}>@</span>
+                                      <input type="text" value={p.name} placeholder="nome"
+                                        onChange={e => updateParam(p._id, 'name', e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+                                        style={{ ...inputStyle, fontFamily: 'monospace', width: '100%' }} />
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <input type="text" placeholder="Ex: Agrupar por" value={p.label}
+                                      onChange={e => updateParam(p._id, 'label', e.target.value)} style={inputStyle} />
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <select value={p.type} onChange={e => updateParam(p._id, 'type', e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }}>
+                                      {(Object.entries(PARAM_TYPE_LABELS) as [ParamType, string][]).map(([v, l]) => (
+                                        <option key={v} value={v}>{l}</option>
+                                      ))}
+                                    </select>
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    {p.type === 'combo'
+                                      ? <span style={{ color: '#9ca3af', fontSize: '0.8rem', fontStyle: 'italic' }}>via opções abaixo</span>
+                                      : <input type={inputTypeFor(p.type)} step={p.type === 'decimal' ? '0.01' : p.type === 'integer' ? '1' : undefined}
+                                          value={p.defaultValue} onChange={e => updateParam(p._id, 'defaultValue', e.target.value)} style={inputStyle} />
+                                    }
+                                  </td>
+                                  <td className="px-2 py-2 text-center">
+                                    <button type="button" onClick={() => removeParam(p._id)} className="text-muted-foreground hover:text-destructive transition-colors">
+                                      <Trash2 className="h-4 w-4" />
+                                    </button>
+                                  </td>
+                                </tr>
+                                {p.type === 'combo' && (
+                                  <tr className={`border-b last:border-0 ${idx % 2 === 1 ? 'bg-muted/10' : ''}`}>
+                                    <td colSpan={5} style={{ padding: '0.75rem 1rem', background: '#f0f9ff', borderTop: '1px dashed #bae6fd' }}>
+                                      <div style={{ marginBottom: '0.5rem', fontSize: '0.8rem', fontWeight: 600, color: '#0369a1', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                        Opções do Combo <span style={{ fontWeight: 400, color: '#64748b' }}>— a primeira opção é a exibida por padrão; "Nenhum" é sempre incluído automaticamente</span>
+                                      </div>
+                                      {p._comboOpts.length > 0 && (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                                          {p._comboOpts.map(opt => (
+                                            <div key={opt._id} style={{ display: 'grid', gridTemplateColumns: '1fr 2fr auto', gap: '0.5rem', alignItems: 'center' }}>
+                                              <input type="text" placeholder="Descrição (ex: Por Código)"
+                                                value={opt.label}
+                                                onChange={e => updateComboOpt(p._id, opt._id, 'label', e.target.value)}
+                                                style={{ ...inputStyle, height: '2rem', fontSize: '0.8125rem' }} />
+                                              <input type="text" placeholder="Trecho SQL (ex: GROUP BY codigo)"
+                                                value={opt.value}
+                                                onChange={e => updateComboOpt(p._id, opt._id, 'value', e.target.value)}
+                                                style={{ ...inputStyle, height: '2rem', fontSize: '0.8125rem', fontFamily: 'monospace', color: '#16a34a', backgroundColor: '#020617' }} />
+                                              <button type="button" onClick={() => removeComboOpt(p._id, opt._id)}
+                                                className="text-muted-foreground hover:text-destructive transition-colors">
+                                                <Trash2 style={{ width: '0.875rem', height: '0.875rem' }} />
+                                              </button>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                      <button type="button" onClick={() => addComboOpt(p._id)}
+                                        style={{
+                                          display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                                          padding: '0.25rem 0.65rem', borderRadius: '0.375rem',
+                                          fontSize: '0.78rem', fontWeight: 500,
+                                          border: '1px solid #7dd3fc', background: '#fff', color: '#0369a1', cursor: 'pointer',
+                                        }}>
+                                        <Plus style={{ width: '0.75rem', height: '0.75rem' }} /> Adicionar Opção
+                                      </button>
+                                    </td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
                             ))}
                           </tbody>
                         </table>
