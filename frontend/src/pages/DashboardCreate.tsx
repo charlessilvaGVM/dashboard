@@ -175,8 +175,10 @@ export default function DashboardCreate() {
   const [sqlTest,         setSqlTest]         = useState<{ status: 'idle' | 'testing' | 'ok' | 'error'; message?: string }>({ status: 'idle' });
   const [chartSqlTest,    setChartSqlTest]    = useState<{ status: 'idle' | 'testing' | 'ok' | 'error'; message?: string }>({ status: 'idle' });
 
-  const sqlTextareaRef  = useRef<HTMLTextAreaElement>(null);
-  const sqlLineNumRef   = useRef<HTMLDivElement>(null);
+  const sqlTextareaRef        = useRef<HTMLTextAreaElement>(null);
+  const sqlLineNumRef         = useRef<HTMLDivElement>(null);
+  const expandSqlTextareaRef  = useRef<HTMLTextAreaElement>(null);
+  const expandSqlLineNumRef   = useRef<HTMLDivElement>(null);
 
   const { data: existing, isLoading: loadingDashboard } = useQuery({
     queryKey: ['dashboard', id],
@@ -1224,14 +1226,43 @@ export default function DashboardCreate() {
                               {expandSqlTest.message}
                             </div>
                           )}
-                          <textarea rows={6} value={expandSql}
-                            placeholder={`SELECT * FROM detalhes WHERE codigo = @${expandParamName || 'codigo'}`}
-                            onChange={e => { setExpandSql(e.target.value); setExpandSqlTest({ status: 'idle' }); }}
-                            style={{
-                              ...inputStyle, padding: '0.75rem', resize: 'vertical',
-                              fontFamily: 'monospace', fontSize: '0.8125rem',
-                              backgroundColor: '#020617', color: '#4ade80', borderColor: '#374151',
-                            }} />
+                          <div style={{
+                            display: 'flex', borderRadius: '0.375rem', overflow: 'hidden',
+                            border: '1px solid #374151', backgroundColor: '#020617',
+                            resize: 'vertical', minHeight: '10rem',
+                          }}>
+                            <div
+                              ref={expandSqlLineNumRef}
+                              style={{
+                                fontFamily: 'monospace', fontSize: '0.875rem', lineHeight: '1.5rem',
+                                padding: '0.75rem 0.5rem 0.75rem 0.4rem',
+                                backgroundColor: '#0f172a', color: '#4b5563',
+                                borderRight: '1px solid #1e293b',
+                                textAlign: 'right', userSelect: 'none',
+                                overflowY: 'hidden', minWidth: '2.8rem',
+                              }}
+                            >
+                              {expandSql.split('\n').map((_, i) => (
+                                <div key={i}>{i + 1}</div>
+                              ))}
+                            </div>
+                            <textarea
+                              ref={expandSqlTextareaRef}
+                              value={expandSql}
+                              placeholder={`SELECT * FROM detalhes WHERE codigo = @${expandParamName || 'codigo'}`}
+                              onChange={e => { setExpandSql(e.target.value); setExpandSqlTest({ status: 'idle' }); }}
+                              onScroll={() => {
+                                if (expandSqlLineNumRef.current && expandSqlTextareaRef.current)
+                                  expandSqlLineNumRef.current.scrollTop = expandSqlTextareaRef.current.scrollTop;
+                              }}
+                              style={{
+                                flex: 1, padding: '0.75rem', resize: 'none', border: 'none', outline: 'none',
+                                fontFamily: 'monospace', fontSize: '0.875rem', lineHeight: '1.5rem',
+                                backgroundColor: '#020617', color: '#4ade80',
+                                minHeight: '10rem',
+                              }}
+                            />
+                          </div>
                           <p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>
                             Use <code style={{ background: '#f3f4f6', padding: '0 3px', borderRadius: 3 }}>@{expandParamName || 'param'}</code> onde o valor da coluna-chave será substituído.
                           </p>
