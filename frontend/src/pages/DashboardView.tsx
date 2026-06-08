@@ -94,11 +94,8 @@ function formatValue(value: unknown): string {
   if (str === '') return '';
   const num = Number(value);
   if (!isNaN(num)) {
-    const isInt = Number.isInteger(num);
-    return num.toLocaleString('pt-BR', {
-      minimumFractionDigits: isInt ? 0 : 2,
-      maximumFractionDigits: isInt ? 0 : 2,
-    });
+    if (Number.isInteger(num)) return String(num);
+    return num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
   return str;
 }
