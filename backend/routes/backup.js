@@ -23,7 +23,9 @@ function escapeXml(s) {
 
 function xmlField(tag, value, ind = '      ') {
   if (value == null || value === '') return `${ind}<${tag}/>`;
-  const s = String(value);
+  // mysql2 pode retornar colunas JSON como objeto JS — serializa de volta para string
+  const s = (value !== null && typeof value === 'object') ? JSON.stringify(value) : String(value);
+  if (!s || s === 'null') return `${ind}<${tag}/>`;
   if (/[<>&"'\n\r]/.test(s)) {
     // ]]> é ilegal dentro de CDATA — divide em múltiplos blocos
     const safe = s.replace(/]]>/g, ']]]]><![CDATA[>');
