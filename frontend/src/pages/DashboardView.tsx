@@ -90,11 +90,17 @@ function isNumericVal(value: unknown): boolean {
 function formatValue(value: unknown): string {
   if (value === null || value === undefined) return '';
   if (typeof value === 'object') return JSON.stringify(value);
+  const str = String(value).trim();
+  if (str === '') return '';
   const num = Number(value);
-  if (!isNaN(num) && value !== '' && String(value).trim() !== '') {
-    return num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (!isNaN(num)) {
+    const isInt = Number.isInteger(num);
+    return num.toLocaleString('pt-BR', {
+      minimumFractionDigits: isInt ? 0 : 2,
+      maximumFractionDigits: isInt ? 0 : 2,
+    });
   }
-  return String(value);
+  return str;
 }
 
 // Resolve o valor de uma coluna no row, aceitando "a.codigo" mesmo quando
