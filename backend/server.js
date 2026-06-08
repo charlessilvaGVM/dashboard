@@ -43,6 +43,7 @@ app.use('/api/query',       require('./routes/query'));
 app.use('/api/attachments', require('./routes/attachments'));
 app.use('/api/logs',        require('./routes/logs'));
 app.use('/api/connections', require('./routes/connections'));
+app.use('/api/backup',     require('./routes/backup'));
 
 // Health check
 app.get('/api/health', (req, res) => {

@@ -9,6 +9,7 @@ import Users from '@/pages/Users';
 import UserCreate from '@/pages/UserCreate';
 import LogsPage from '@/pages/LogsPage';
 import ConnectionsPage from '@/pages/ConnectionsPage';
+import BackupRestore from '@/pages/BackupRestore';
 import NotFound from '@/pages/NotFound';
 import { getToken, isAdmin } from '@/services/api';
 
@@ -46,6 +47,7 @@ export default function App() {
 
         <Route path="/logs"        element={<AdminRoute><LogsPage /></AdminRoute>} />
         <Route path="/connections" element={<AdminRoute><ConnectionsPage /></AdminRoute>} />
+        <Route path="/backup"      element={<AdminRoute><BackupRestore /></AdminRoute>} />
 
         <Route path="*" element={<NotFound />} />
       </Routes>

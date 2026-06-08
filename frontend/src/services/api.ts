@@ -90,9 +90,16 @@ export interface ChartConfig {
 
 export interface DashboardAction {
   label: string;             // texto do botão
-  sourceColumn: string;      // coluna cujo valor vira parâmetro
+  type?: 'row' | 'direct';  // 'row' = por linha (padrão), 'direct' = navegação direta sem parâmetro
+  sourceColumn: string;      // coluna cujo valor vira parâmetro (apenas type='row')
   targetDashboardId: number; // dashboard destino
-  targetParam: string;       // @param no dashboard destino
+  targetParam: string;       // @param no dashboard destino (apenas type='row')
+}
+
+export interface DashboardExpand {
+  clickColumn: string | null; // coluna cujo valor é passado para o @param (opcional)
+  paramName: string | null;   // nome do @param no SQL de expansão (opcional)
+  sql: string;
 }
 
 export interface ExtraChart {
@@ -112,6 +119,7 @@ export interface Dashboard {
   chart_type: ChartType;
   links: DashboardLink[] | null;
   actions: DashboardAction[] | null;
+  expand_config: DashboardExpand | null;
   chart_config: ChartConfig | null;
   column_hints: Record<string, string> | null;
   refresh_interval: number | null;
@@ -260,10 +268,10 @@ export async function getDashboards(): Promise<Dashboard[]> {
 export async function getDashboard(id: number): Promise<Dashboard> {
   return request<Dashboard>('GET', `/dashboards/${id}`);
 }
-export async function createDashboard(data: { nome: string; descricao?: string; sql_query: string; chart_sql_query?: string | null; params?: DashboardParam[]; chart_type?: ChartType; links?: DashboardLink[]; actions?: DashboardAction[]; column_hints?: Record<string, string> | null; refresh_interval?: number; connection_id?: number | null; extra_charts?: ExtraChart[] | null }): Promise<Dashboard> {
+export async function createDashboard(data: { nome: string; descricao?: string; sql_query: string; chart_sql_query?: string | null; params?: DashboardParam[]; chart_type?: ChartType; links?: DashboardLink[]; actions?: DashboardAction[]; expand_config?: DashboardExpand | null; column_hints?: Record<string, string> | null; refresh_interval?: number; connection_id?: number | null; extra_charts?: ExtraChart[] | null }): Promise<Dashboard> {
   return request<Dashboard>('POST', '/dashboards', data);
 }
-export async function updateDashboard(id: number, data: { nome: string; descricao?: string; sql_query: string; chart_sql_query?: string | null; params?: DashboardParam[]; chart_type?: ChartType; links?: DashboardLink[]; actions?: DashboardAction[]; column_hints?: Record<string, string> | null; refresh_interval?: number; connection_id?: number | null; extra_charts?: ExtraChart[] | null }): Promise<Dashboard> {
+export async function updateDashboard(id: number, data: { nome: string; descricao?: string; sql_query: string; chart_sql_query?: string | null; params?: DashboardParam[]; chart_type?: ChartType; links?: DashboardLink[]; actions?: DashboardAction[]; expand_config?: DashboardExpand | null; column_hints?: Record<string, string> | null; refresh_interval?: number; connection_id?: number | null; extra_charts?: ExtraChart[] | null }): Promise<Dashboard> {
   return request<Dashboard>('PUT', `/dashboards/${id}`, data);
 }
 export async function saveExtraChartConfig(id: number, extra_charts: ExtraChart[]): Promise<{ ok: boolean }> {
@@ -407,4 +415,64 @@ export async function getLogs(params: { page?: number; limit?: number; dashboard
 
 export async function clearLogs(): Promise<{ message: string }> {
   return request<{ message: string }>('DELETE', '/logs/clear');
+}
+
+// ── Backup / Restore ──────────────────────────────────────────────────────────
+export interface BackupPreview {
+  exportedAt: string | null;
+  dashboards:  { nome: string; conflict: boolean }[];
+  connections: { nome: string; conflict: boolean }[];
+}
+export interface BackupImportResult {
+  success: boolean;
+  mode: 'skip' | 'overwrite';
+  dashboards:  { imported: number; overwritten: number; skipped: number };
+  connections: { imported: number; overwritten: number; skipped: number };
+}
+
+export async function downloadBackup(): Promise<void> {
+  const token = getToken();
+  const response = await fetch(`${BASE_URL}/backup/export`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) throw new Error('Erro ao gerar backup');
+  const blob = await response.blob();
+  const cd   = response.headers.get('Content-Disposition') || '';
+  const fnM  = cd.match(/filename="([^"]+)"/);
+  const filename = fnM ? fnM[1] : `gvmdashboard_backup.xml`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+export async function previewBackupImport(file: File): Promise<BackupPreview> {
+  const token = getToken();
+  const form  = new FormData();
+  form.append('file', file);
+  const response = await fetch(`${BASE_URL}/backup/import/preview`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Erro ao analisar arquivo');
+  return data as BackupPreview;
+}
+
+export async function executeBackupImport(file: File, mode: 'skip' | 'overwrite'): Promise<BackupImportResult> {
+  const token = getToken();
+  const form  = new FormData();
+  form.append('file', file);
+  form.append('mode', mode);
+  const response = await fetch(`${BASE_URL}/backup/import/execute`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Erro ao importar');
+  return data as BackupImportResult;
 }
