@@ -87,11 +87,27 @@ function isNumericVal(value: unknown): boolean {
   return !isNaN(Number(value));
 }
 
+const ISO_DATE_RE   = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_DATETIME_RE = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/;
+
 function formatValue(value: unknown): string {
   if (value === null || value === undefined) return '';
   if (typeof value === 'object') return JSON.stringify(value);
   const str = String(value).trim();
   if (str === '') return '';
+
+  // ISO datetime: 2025-09-08T03:00:00.000Z → 08/09/2025
+  if (ISO_DATETIME_RE.test(str)) {
+    const d = new Date(str);
+    if (!isNaN(d.getTime()))
+      return `${String(d.getUTCDate()).padStart(2,'0')}/${String(d.getUTCMonth()+1).padStart(2,'0')}/${d.getUTCFullYear()}`;
+  }
+  // ISO date: 2025-09-08 → 08/09/2025
+  if (ISO_DATE_RE.test(str)) {
+    const [y, m, d] = str.split('-');
+    return `${d}/${m}/${y}`;
+  }
+
   const num = Number(value);
   if (!isNaN(num)) {
     if (Number.isInteger(num)) return String(num);
