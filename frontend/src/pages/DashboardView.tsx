@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Pencil, Play, ChevronDown, ChevronUp, ChevronsUpDown,
   BarChart2, TrendingUp, AreaChart as AreaChartIcon, PieChart as PieChartIcon,
@@ -29,6 +29,7 @@ import {
   type QueryResult, type DashboardParam, type ChartType,
   type DashboardLink, type DashboardAction, type ChartConfig, type ExtraChart, type DashboardExpand,
 } from '@/services/api';
+import { toast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 // ── constants ────────────────────────────────────────────────────────────────
@@ -315,6 +316,7 @@ interface DrillState {
 
 export default function DashboardView() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -1065,6 +1067,10 @@ export default function DashboardView() {
                               setSavingChart(true);
                               try {
                                 await saveChartConfig(dashboard.id, { labelCol: curLabel, valueCols: curValues });
+                                await queryClient.invalidateQueries({ queryKey: ['dashboard', id] });
+                                toast({ title: 'Configuração do gráfico salva!' });
+                              } catch {
+                                toast({ title: 'Erro ao salvar configuração', variant: 'destructive' });
                               } finally { setSavingChart(false); }
                             }}
                             disabled={savingChart || !curLabel || curValues.length === 0}
@@ -1186,7 +1192,13 @@ export default function DashboardView() {
                     const updated = (dashboard.extra_charts ?? []).map((c, i) =>
                       i === idx ? { ...c, chart_type: type, chart_config: config } : c
                     );
-                    await saveExtraChartConfig(Number(id), updated);
+                    try {
+                      await saveExtraChartConfig(Number(id), updated);
+                      await queryClient.invalidateQueries({ queryKey: ['dashboard', id] });
+                      toast({ title: 'Configuração do gráfico salva!' });
+                    } catch {
+                      toast({ title: 'Erro ao salvar configuração', variant: 'destructive' });
+                    }
                   }}
                 />
               ))}
