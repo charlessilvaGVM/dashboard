@@ -1367,7 +1367,8 @@ export default function DashboardCreate() {
                                     style={{ flex: 1, padding: '0.75rem', resize: 'none', border: 'none', outline: 'none', fontFamily: 'monospace', fontSize: '0.875rem', lineHeight: '1.5rem', backgroundColor: '#020617', color: '#4ade80', minHeight: '8rem' }} />
                                 </div>
                                 <p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>
-                                  Use <code style={{ background: '#f3f4f6', padding: '0 3px', borderRadius: 3 }}>@{drillParamName || 'vendedor'}</code> onde o valor da célula clicada será substituído.
+                                  Use <code style={{ background: '#f3f4f6', padding: '0 3px', borderRadius: 3 }}>@{drillParamName || 'vendedor'}</code> para o valor da célula clicada.
+                                  Os parâmetros do dashboard principal (ex.: <code style={{ background: '#f3f4f6', padding: '0 3px', borderRadius: 3 }}>@anomes</code>, <code style={{ background: '#f3f4f6', padding: '0 3px', borderRadius: 3 }}>@emp</code>) também estão disponíveis.
                                 </p>
                               </div>
                             </div>
