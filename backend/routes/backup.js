@@ -24,17 +24,39 @@ function escapeXml(s) {
 function xmlField(tag, value, ind = '      ') {
   if (value == null || value === '') return `${ind}<${tag}/>`;
   const s = String(value);
-  if (/[<>&"'\n\r]/.test(s)) return `${ind}<${tag}><![CDATA[${s}]]></${tag}>`;
+  if (/[<>&"'\n\r]/.test(s)) {
+    // ]]> é ilegal dentro de CDATA — divide em múltiplos blocos
+    const safe = s.replace(/]]>/g, ']]]]><![CDATA[>');
+    return `${ind}<${tag}><![CDATA[${safe}]]></${tag}>`;
+  }
   return `${ind}<${tag}>${escapeXml(s)}</${tag}>`;
 }
 
+// Retorna null se val é undefined/null/vazio, string original caso contrário
+function orNull(val) {
+  if (val === undefined || val === null) return null;
+  const s = String(val).trim();
+  return s === '' ? null : s;
+}
+
+// Valida JSON — retorna string se válido, null se inválido/vazio
+function safeJson(val) {
+  const s = orNull(val);
+  if (s === null) return null;
+  try { JSON.parse(s); return s; } catch { return null; }
+}
+
 function extractField(xml, tag) {
+  // CDATA (greedy até o último ]]> antes do fechamento da tag)
   const cdataM = xml.match(new RegExp(`<${tag}[^>]*>\\s*<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>\\s*</${tag}>`, 'i'));
-  if (cdataM) return cdataM[1];
+  if (cdataM) {
+    // Desfaz o escape de ]]> feito no export
+    return cdataM[1].replace(/\]\]]]><!\[CDATA\[>/g, ']]>');
+  }
   if (new RegExp(`<${tag}\\s*/>`, 'i').test(xml)) return null;
   const textM = xml.match(new RegExp(`<${tag}[^>]*>([^<]*)</${tag}>`, 'i'));
   if (textM) return textM[1].trim() || null;
-  return undefined;
+  return null; // não encontrado → null (não undefined)
 }
 
 function extractBlocks(xml, tag) {
@@ -222,19 +244,19 @@ router.post('/import/execute', upload.single('file'), async (req, res) => {
     let dashImported = 0, dashSkipped = 0, dashOverwritten = 0;
 
     for (const block of dashBlocks) {
-      const nome             = extractField(block, 'nome') || 'Dashboard importado';
-      const descricao        = extractField(block, 'descricao');
-      const sql_query        = extractField(block, 'sql_query') || 'SELECT 1';
-      const chart_type       = extractField(block, 'chart_type') || 'none';
-      const chart_sql_query  = extractField(block, 'chart_sql_query');
-      const params           = extractField(block, 'params');
-      const chart_config     = extractField(block, 'chart_config');
-      const links            = extractField(block, 'links');
-      const actions          = extractField(block, 'actions');
-      const expand_config    = extractField(block, 'expand_config');
-      const column_hints     = extractField(block, 'column_hints');
-      const extra_charts     = extractField(block, 'extra_charts');
-      const refresh_interval = parseInt(extractField(block, 'refresh_interval') || '0', 10);
+      const nome             = orNull(extractField(block, 'nome')) || 'Dashboard importado';
+      const descricao        = orNull(extractField(block, 'descricao'));
+      const sql_query        = orNull(extractField(block, 'sql_query')) || 'SELECT 1';
+      const chart_type       = orNull(extractField(block, 'chart_type')) || 'none';
+      const chart_sql_query  = orNull(extractField(block, 'chart_sql_query'));
+      const params           = safeJson(extractField(block, 'params'));
+      const chart_config     = safeJson(extractField(block, 'chart_config'));
+      const links            = safeJson(extractField(block, 'links'));
+      const actions          = safeJson(extractField(block, 'actions'));
+      const expand_config    = safeJson(extractField(block, 'expand_config'));
+      const column_hints     = safeJson(extractField(block, 'column_hints'));
+      const extra_charts     = safeJson(extractField(block, 'extra_charts'));
+      const refresh_interval = parseInt(orNull(extractField(block, 'refresh_interval')) || '0', 10);
 
       const [exists] = await db.query('SELECT id FROM gvmdash_dashboards WHERE nome = ?', [nome]);
 
