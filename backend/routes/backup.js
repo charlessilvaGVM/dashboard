@@ -45,18 +45,42 @@ function extractBlocks(xml, tag) {
   return out;
 }
 
-// ── GET /export ──────────────────────────────────────────────
-router.get('/export', async (req, res) => {
+// ── POST /export ─────────────────────────────────────────────
+// Body: { ids?: number[] }  — se ids vazio/ausente exporta tudo
+router.post('/export', async (req, res) => {
   try {
-    const [dashboards]  = await db.query(
-      `SELECT nome, descricao, sql_query, chart_type, chart_sql_query,
-              params, chart_config, links, actions, expand_config,
-              column_hints, extra_charts, refresh_interval, connection_id
-       FROM gvmdash_dashboards ORDER BY id`
-    );
-    const [connections] = await db.query(
-      'SELECT nome, host, port, `database`, `user`, password, ativo FROM gvmdash_connections ORDER BY id'
-    );
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Boolean) : [];
+
+    let dashboards;
+    if (ids.length > 0) {
+      const placeholders = ids.map(() => '?').join(',');
+      [dashboards] = await db.query(
+        `SELECT nome, descricao, sql_query, chart_type, chart_sql_query,
+                params, chart_config, links, actions, expand_config,
+                column_hints, extra_charts, refresh_interval, connection_id
+         FROM gvmdash_dashboards WHERE id IN (${placeholders}) ORDER BY id`,
+        ids
+      );
+    } else {
+      [dashboards] = await db.query(
+        `SELECT nome, descricao, sql_query, chart_type, chart_sql_query,
+                params, chart_config, links, actions, expand_config,
+                column_hints, extra_charts, refresh_interval, connection_id
+         FROM gvmdash_dashboards ORDER BY id`
+      );
+    }
+
+    // Inclui apenas conexões referenciadas pelos dashboards exportados
+    const connIds = [...new Set(dashboards.map(d => d.connection_id).filter(Boolean))];
+    let connections = [];
+    if (connIds.length > 0) {
+      const placeholders = connIds.map(() => '?').join(',');
+      [connections] = await db.query(
+        `SELECT nome, host, port, \`database\`, \`user\`, password, ativo
+         FROM gvmdash_connections WHERE id IN (${placeholders}) ORDER BY id`,
+        connIds
+      );
+    }
 
     const now = new Date().toISOString();
     const lines = [];

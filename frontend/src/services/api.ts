@@ -430,10 +430,15 @@ export interface BackupImportResult {
   connections: { imported: number; overwritten: number; skipped: number };
 }
 
-export async function downloadBackup(): Promise<void> {
+export async function downloadBackup(ids?: number[]): Promise<void> {
   const token = getToken();
   const response = await fetch(`${BASE_URL}/backup/export`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ ids: ids ?? [] }),
   });
   if (!response.ok) throw new Error('Erro ao gerar backup');
   const blob = await response.blob();
