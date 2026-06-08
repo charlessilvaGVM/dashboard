@@ -28,6 +28,8 @@ export default defineConfig({
   },
   server: {
     port: frontPort,
+    host: true,
+    allowedHosts: 'all',
     proxy: {
       '/api': {
         target: `http://localhost:${backendPort}`,
