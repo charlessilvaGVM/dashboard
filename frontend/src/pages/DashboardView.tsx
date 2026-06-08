@@ -87,10 +87,11 @@ function isNumericVal(value: unknown): boolean {
   return !isNaN(Number(value));
 }
 
-const ISO_DATE_RE   = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_DATE_RE     = /^\d{4}-\d{2}-\d{2}$/;
 const ISO_DATETIME_RE = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/;
+const MONEY_COL_RE    = /vlr|valor|total|preco|pre[çc]o|fat|receita|desconto|bruto|l[íi]quido|fatura|saldo|custo|margem|comiss/i;
 
-function formatValue(value: unknown): string {
+function formatValue(value: unknown, colName?: string): string {
   if (value === null || value === undefined) return '';
   if (typeof value === 'object') return JSON.stringify(value);
   const str = String(value).trim();
@@ -110,6 +111,9 @@ function formatValue(value: unknown): string {
 
   const num = Number(value);
   if (!isNaN(num)) {
+    if (colName && MONEY_COL_RE.test(colName)) {
+      return `R$ ${num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
     if (Number.isInteger(num)) return String(num);
     return num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
@@ -1416,7 +1420,7 @@ export default function DashboardView() {
                               )}
                               {queryResult.columns.map(col => {
                                 const val        = row[col.name];
-                                const displayVal = formatValue(val);
+                                const displayVal = formatValue(val, col.name);
                                 const isNull     = val === null || val === undefined;
                                 const isNum      = numericCols.has(col.name);
                                 const link       = linkMap.get(col.name);
@@ -1478,9 +1482,9 @@ export default function DashboardView() {
                                                     {isDrillCol && cellVal ? (
                                                       <button onClick={() => handleDrill(cellVal)}
                                                         style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#2563eb', textDecoration: 'underline', fontSize: 'inherit', fontFamily: 'inherit' }}>
-                                                        {formatValue(subRow[col])}
+                                                        {formatValue(subRow[col], col)}
                                                       </button>
-                                                    ) : formatValue(subRow[col])}
+                                                    ) : formatValue(subRow[col], col)}
                                                   </td>
                                                 );
                                               })}
@@ -1674,7 +1678,7 @@ export default function DashboardView() {
                                 >
                                   {isNull
                                     ? <span className="text-muted-foreground" style={{ fontStyle: 'italic', fontSize: '0.75rem' }}>NULL</span>
-                                    : formatValue(val)}
+                                    : formatValue(val, col.name)}
                                 </td>
                               );
                             })}
@@ -1744,7 +1748,7 @@ export default function DashboardView() {
                         <tr key={i} style={{ borderBottom: '1px solid hsl(var(--border))', background: i % 2 === 1 ? 'hsl(var(--muted)/0.3)' : 'transparent' }}>
                           {drillCols.map(col => (
                             <td key={col} style={{ padding: '0.4rem 0.75rem', whiteSpace: 'nowrap' }}>
-                              {formatValue(row[col])}
+                              {formatValue(row[col], col)}
                             </td>
                           ))}
                         </tr>
