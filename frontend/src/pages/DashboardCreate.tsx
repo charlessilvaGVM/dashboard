@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Save, Database, SlidersHorizontal, Plus, RefreshCw, Trash2, BarChart2, TrendingUp, AreaChart, PieChart, Donut, Ban, Link2, MousePointerClick, FlaskConical, CheckCircle2, XCircle, Info, FileText } from 'lucide-react';
@@ -10,14 +10,14 @@ import {
   createDashboard, updateDashboard, getDashboard, getDashboards, testQuery,
   getConnections,
   extractSqlParams, guessParamType, getParamDefault,
-  type DashboardParam, type ParamType, type ChartType, type DashboardLink, type DashboardAction, type ExtraChart, type ComboOption,
+  type DashboardParam, type ParamType, type ChartType, type DashboardLink, type DashboardAction, type ExtraChart, type ComboOption, type DashboardExpand,
 } from '@/services/api';
 import { toast } from '@/hooks/use-toast';
 
 interface ComboOptRow extends ComboOption { _id: string; }
 interface ParamRow   extends DashboardParam   { _id: string; _comboOpts: ComboOptRow[]; }
 interface LinkRow    extends DashboardLink    { _id: string; }
-interface ActionRow  extends DashboardAction  { _id: string; }
+interface ActionRow  extends DashboardAction  { _id: string; type: 'row' | 'direct'; }
 
 type TabId = 'sql' | 'grafico' | 'interativo' | 'docs';
 
@@ -152,6 +152,11 @@ export default function DashboardCreate() {
   const [hintRows,         setHintRows]        = useState<{ _id: string; col: string; text: string }[]>([]);
   const [refreshInterval,  setRefreshInterval] = useState('0');
   const [connectionId,     setConnectionId]    = useState<string>('');
+  const [expandEnabled,     setExpandEnabled]     = useState(false);
+  const [expandClickColumn, setExpandClickColumn] = useState('');
+  const [expandParamName,   setExpandParamName]   = useState('');
+  const [expandSql,         setExpandSql]         = useState('');
+  const [expandSqlTest,     setExpandSqlTest]     = useState<{ status: 'idle' | 'testing' | 'ok' | 'error'; message?: string }>({ status: 'idle' });
 
   interface ExtraChartRow {
     _id: string; enabled: boolean; title: string;
@@ -169,6 +174,9 @@ export default function DashboardCreate() {
   const [pendingPayload,  setPendingPayload]  = useState<ReturnType<typeof buildPayload> | null>(null);
   const [sqlTest,         setSqlTest]         = useState<{ status: 'idle' | 'testing' | 'ok' | 'error'; message?: string }>({ status: 'idle' });
   const [chartSqlTest,    setChartSqlTest]    = useState<{ status: 'idle' | 'testing' | 'ok' | 'error'; message?: string }>({ status: 'idle' });
+
+  const sqlTextareaRef  = useRef<HTMLTextAreaElement>(null);
+  const sqlLineNumRef   = useRef<HTMLDivElement>(null);
 
   const { data: existing, isLoading: loadingDashboard } = useQuery({
     queryKey: ['dashboard', id],
@@ -202,12 +210,18 @@ export default function DashboardCreate() {
         _comboOpts: (p.comboOptions || []).map(o => ({ ...o, _id: Math.random().toString(36).slice(2) })),
       })));
       setLinkRows((existing.links || []).map(l => ({ ...l, _id: Math.random().toString(36).slice(2) })));
-      setActionRows((existing.actions || []).map(a => ({ ...a, _id: Math.random().toString(36).slice(2) })));
+      setActionRows((existing.actions || []).map(a => ({ ...a, type: a.type ?? 'row', _id: Math.random().toString(36).slice(2) })));
       setHintRows(Object.entries(existing.column_hints || {}).map(([col, text]) => ({
         _id: Math.random().toString(36).slice(2), col, text,
       })));
       setRefreshInterval(String(existing.refresh_interval ?? 0));
       setConnectionId(existing.connection_id ? String(existing.connection_id) : '');
+      if (existing.expand_config) {
+        setExpandEnabled(true);
+        setExpandClickColumn(existing.expand_config.clickColumn ?? '');
+        setExpandParamName(existing.expand_config.paramName ?? '');
+        setExpandSql(existing.expand_config.sql);
+      }
       const loaded = (existing.extra_charts || []).slice(0, 3);
       setExtraChartRows([0, 1, 2].map(i => {
         const c = loaded[i];
@@ -246,6 +260,17 @@ export default function DashboardCreate() {
       setChartSqlTest(result.valid ? { status: 'ok', message: 'Sintaxe válida' } : { status: 'error', message: result.error || 'Erro de sintaxe' });
     } catch (err: unknown) {
       setChartSqlTest({ status: 'error', message: err instanceof Error ? err.message : 'Erro ao testar' });
+    }
+  };
+
+  const handleTestExpandSql = async () => {
+    if (!expandSql.trim()) return;
+    setExpandSqlTest({ status: 'testing' });
+    try {
+      const result = await testQuery(expandSql.trim());
+      setExpandSqlTest(result.valid ? { status: 'ok', message: 'Sintaxe válida' } : { status: 'error', message: result.error || 'Erro de sintaxe' });
+    } catch (err: unknown) {
+      setExpandSqlTest({ status: 'error', message: err instanceof Error ? err.message : 'Erro ao testar' });
     }
   };
 
@@ -298,7 +323,7 @@ export default function DashboardCreate() {
     setHintRows(prev => prev.map(h => h._id !== _id ? h : { ...h, [field]: value }));
 
   // ── action helpers ────────────────────────────────────────────────────
-  const addAction    = () => setActionRows(prev => [...prev, { _id: Math.random().toString(36).slice(2), label: '', sourceColumn: '', targetDashboardId: 0, targetParam: '' }]);
+  const addAction    = () => setActionRows(prev => [...prev, { _id: Math.random().toString(36).slice(2), type: 'row', label: '', sourceColumn: '', targetDashboardId: 0, targetParam: '' }]);
   const removeAction = (_id: string) => setActionRows(prev => prev.filter(a => a._id !== _id));
   const updateAction = (_id: string, field: keyof ActionRow, value: string | number) =>
     setActionRows(prev => prev.map(a => a._id !== _id ? a : { ...a, [field]: value }));
@@ -318,13 +343,18 @@ export default function DashboardCreate() {
       .filter(l => l.clickColumn.trim() && l.valueColumn.trim() && l.sql.trim() && l.paramName.trim())
       .map(({ _id: _, ...l }) => l) as DashboardLink[],
     actions: actionRows
-      .filter(a => a.label.trim() && a.sourceColumn.trim() && a.targetDashboardId && a.targetParam.trim())
+      .filter(a => a.label.trim() && a.targetDashboardId && (
+        a.type === 'direct' || (a.sourceColumn.trim() && a.targetParam.trim())
+      ))
       .map(({ _id: _, ...a }) => a) as DashboardAction[],
     column_hints: hintRows.filter(h => h.col.trim() && h.text.trim()).length > 0
       ? Object.fromEntries(hintRows.filter(h => h.col.trim() && h.text.trim()).map(h => [h.col.trim(), h.text.trim()]))
       : null,
     refresh_interval: Math.max(0, parseInt(refreshInterval) || 0),
     connection_id: connectionId ? parseInt(connectionId) || null : null,
+    expand_config: (expandEnabled && expandSql.trim())
+      ? { clickColumn: expandClickColumn.trim() || null, paramName: expandParamName.trim() || null, sql: expandSql.trim() } as DashboardExpand
+      : null,
     extra_charts: extraChartRows
       .filter(c => c.enabled && c.sql.trim())
       .map(c => ({ title: c.title.trim(), sql_query: c.sql.trim(), chart_type: c.chartType, chart_config: null }) as ExtraChart),
@@ -362,6 +392,21 @@ export default function DashboardCreate() {
       if (errs.sql_query) setActiveTab('sql');
       return;
     }
+    if (expandEnabled) {
+      if (!expandSql.trim()) {
+        toast({ variant: 'destructive', title: 'Expansão Inline incompleta', description: 'O SQL de expansão é obrigatório.' });
+        setActiveTab('interativo');
+        return;
+      }
+      const hasColumn = expandClickColumn.trim();
+      const hasParam  = expandParamName.trim();
+      if ((hasColumn && !hasParam) || (!hasColumn && hasParam)) {
+        toast({ variant: 'destructive', title: 'Expansão Inline incompleta', description: 'Informe a coluna-chave E o nome do parâmetro juntos, ou deixe ambos em branco.' });
+        setActiveTab('interativo');
+        return;
+      }
+    }
+    console.debug('[DashboardCreate] buildPayload expand:', { expandEnabled, expandClickColumn, expandParamName, expandSqlLen: expandSql.length });
     setPendingPayload(buildPayload());
     setConfirmOpen(true);
   };
@@ -523,18 +568,44 @@ export default function DashboardCreate() {
                       <label htmlFor="sql_query" style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500 }}>
                         SQL <span style={{ color: '#ef4444' }}>*</span>
                       </label>
-                      <textarea
-                        id="sql_query" rows={12}
-                        placeholder="SELECT * FROM tabela WHERE data BETWEEN @dt_ini AND @dt_fim"
-                        value={sqlQuery}
-                        onChange={e => { setSqlQuery(e.target.value); if (touched) setErrors(p => ({ ...p, sql_query: undefined })); setSqlTest({ status: 'idle' }); }}
-                        style={{
-                          ...inputStyle, padding: '0.75rem', resize: 'vertical',
-                          fontFamily: 'monospace', fontSize: '0.875rem',
-                          backgroundColor: '#020617', color: '#4ade80',
-                          borderColor: errors.sql_query ? '#ef4444' : '#374151',
-                        }}
-                      />
+                      <div style={{
+                        display: 'flex', borderRadius: '0.375rem', overflow: 'hidden',
+                        border: `1px solid ${errors.sql_query ? '#ef4444' : '#374151'}`,
+                        backgroundColor: '#020617', resize: 'vertical',
+                        minHeight: '14rem',
+                      }}>
+                        {/* numeração de linhas */}
+                        <div
+                          ref={sqlLineNumRef}
+                          style={{
+                            fontFamily: 'monospace', fontSize: '0.875rem', lineHeight: '1.5rem',
+                            padding: '0.75rem 0.5rem 0.75rem 0.4rem',
+                            backgroundColor: '#0f172a', color: '#4b5563',
+                            borderRight: '1px solid #1e293b',
+                            textAlign: 'right', userSelect: 'none',
+                            overflowY: 'hidden', minWidth: '2.8rem',
+                          }}
+                        >
+                          {sqlQuery.split('\n').map((_, i) => (
+                            <div key={i}>{i + 1}</div>
+                          ))}
+                        </div>
+                        {/* textarea */}
+                        <textarea
+                          ref={sqlTextareaRef}
+                          id="sql_query"
+                          placeholder="SELECT * FROM tabela WHERE data BETWEEN @dt_ini AND @dt_fim"
+                          value={sqlQuery}
+                          onChange={e => { setSqlQuery(e.target.value); if (touched) setErrors(p => ({ ...p, sql_query: undefined })); setSqlTest({ status: 'idle' }); }}
+                          onScroll={() => { if (sqlLineNumRef.current && sqlTextareaRef.current) sqlLineNumRef.current.scrollTop = sqlTextareaRef.current.scrollTop; }}
+                          style={{
+                            flex: 1, padding: '0.75rem', resize: 'none', border: 'none', outline: 'none',
+                            fontFamily: 'monospace', fontSize: '0.875rem', lineHeight: '1.5rem',
+                            backgroundColor: '#020617', color: '#4ade80',
+                            minHeight: '14rem',
+                          }}
+                        />
+                      </div>
                       {errors.sql_query && <p style={{ color: '#ef4444', fontSize: '0.75rem' }}>{errors.sql_query}</p>}
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
                         <button
@@ -956,7 +1027,7 @@ export default function DashboardCreate() {
                           Botões de Navegação
                         </CardTitle>
                         <CardDescription className="mt-1">
-                          Adiciona botões em cada linha que abrem outro dashboard com o valor da linha como parâmetro.
+                          Botões que abrem outro dashboard. Tipo "Por linha" passa o valor de uma coluna; tipo "Direto" navega sem parâmetro.
                         </CardDescription>
                       </div>
                       <Button type="button" variant="outline" size="sm" className="gap-2" onClick={addAction}>
@@ -971,9 +1042,10 @@ export default function DashboardCreate() {
                         <table className="w-full text-sm">
                           <thead>
                             <tr className="bg-muted/40 border-b">
+                              <th className="text-left px-3 py-2.5 font-medium text-muted-foreground w-32">Tipo</th>
                               <th className="text-left px-3 py-2.5 font-medium text-muted-foreground w-40">Label do Botão</th>
-                              <th className="text-left px-3 py-2.5 font-medium text-muted-foreground w-36">Coluna de Valor</th>
                               <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Dashboard Destino</th>
+                              <th className="text-left px-3 py-2.5 font-medium text-muted-foreground w-36">Coluna de Valor</th>
                               <th className="text-left px-3 py-2.5 font-medium text-muted-foreground w-40">Parâmetro Destino</th>
                               <th className="w-10" />
                             </tr>
@@ -982,14 +1054,17 @@ export default function DashboardCreate() {
                             {actionRows.map((a, idx) => (
                               <tr key={a._id} className={`border-b last:border-0 ${idx % 2 === 1 ? 'bg-muted/10' : ''}`}>
                                 <td className="px-3 py-2">
+                                  <select value={a.type ?? 'row'}
+                                    onChange={e => updateAction(a._id, 'type', e.target.value)}
+                                    style={{ ...inputStyle, cursor: 'pointer', height: '2.1rem' }}>
+                                    <option value="row">Por linha</option>
+                                    <option value="direct">Direto</option>
+                                  </select>
+                                </td>
+                                <td className="px-3 py-2">
                                   <input type="text" value={a.label} placeholder="ex: Ver Pedidos"
                                     onChange={e => updateAction(a._id, 'label', e.target.value)}
                                     style={{ ...inputStyle, height: '2.1rem' }} />
-                                </td>
-                                <td className="px-3 py-2">
-                                  <input type="text" value={a.sourceColumn} placeholder="ex: codigo"
-                                    onChange={e => updateAction(a._id, 'sourceColumn', e.target.value)}
-                                    style={{ ...inputStyle, fontFamily: 'monospace', height: '2.1rem' }} />
                                 </td>
                                 <td className="px-3 py-2">
                                   <select value={a.targetDashboardId || ''}
@@ -1000,12 +1075,25 @@ export default function DashboardCreate() {
                                   </select>
                                 </td>
                                 <td className="px-3 py-2">
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-                                    <span style={{ fontFamily: 'monospace', color: '#2563eb', fontSize: '0.875rem' }}>@</span>
-                                    <input type="text" value={a.targetParam} placeholder="cod_produto"
-                                      onChange={e => updateAction(a._id, 'targetParam', e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+                                  {a.type !== 'direct' ? (
+                                    <input type="text" value={a.sourceColumn} placeholder="ex: codigo"
+                                      onChange={e => updateAction(a._id, 'sourceColumn', e.target.value)}
                                       style={{ ...inputStyle, fontFamily: 'monospace', height: '2.1rem' }} />
-                                  </div>
+                                  ) : (
+                                    <span style={{ fontSize: '0.75rem', color: '#9ca3af', fontStyle: 'italic' }}>não necessário</span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2">
+                                  {a.type !== 'direct' ? (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                      <span style={{ fontFamily: 'monospace', color: '#2563eb', fontSize: '0.875rem' }}>@</span>
+                                      <input type="text" value={a.targetParam} placeholder="cod_produto"
+                                        onChange={e => updateAction(a._id, 'targetParam', e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+                                        style={{ ...inputStyle, fontFamily: 'monospace', height: '2.1rem' }} />
+                                    </div>
+                                  ) : (
+                                    <span style={{ fontSize: '0.75rem', color: '#9ca3af', fontStyle: 'italic' }}>não necessário</span>
+                                  )}
                                 </td>
                                 <td className="px-2 py-2 text-center">
                                   <button type="button" onClick={() => removeAction(a._id)}
@@ -1074,6 +1162,80 @@ export default function DashboardCreate() {
                             ))}
                           </tbody>
                         </table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <div>
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <span style={{ fontSize: '1.1rem', lineHeight: 1 }}>⊕</span>
+                        Expansão Inline
+                      </CardTitle>
+                      <CardDescription className="mt-1">
+                        Exibe um botão ⊕ em cada linha da tabela. Ao clicar, executa um segundo SQL e mostra os resultados diretamente abaixo da linha, como um pivot Excel.
+                      </CardDescription>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500 }}>
+                      <input type="checkbox" checked={expandEnabled} onChange={e => setExpandEnabled(e.target.checked)}
+                        style={{ accentColor: '#2563eb', width: '1rem', height: '1rem' }} />
+                      Habilitar expansão inline
+                    </label>
+                    {expandEnabled && (
+                      <div className="space-y-4 rounded-lg border p-4">
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                          <div className="space-y-1">
+                            <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500 }}>Coluna do valor-chave</label>
+                            <input type="text" value={expandClickColumn} placeholder="ex: codigo"
+                              onChange={e => setExpandClickColumn(e.target.value)}
+                              style={{ ...inputStyle, fontFamily: 'monospace', height: '2.25rem' }} />
+                            <p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>Coluna cujo valor é passado para o @param do SQL abaixo</p>
+                          </div>
+                          <div className="space-y-1">
+                            <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500 }}>Parâmetro no SQL</label>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '2px', height: '2.25rem' }}>
+                              <span style={{ fontFamily: 'monospace', color: '#2563eb', fontSize: '0.875rem', lineHeight: '2.25rem' }}>@</span>
+                              <input type="text" value={expandParamName} placeholder="codigo"
+                                onChange={e => setExpandParamName(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+                                style={{ ...inputStyle, fontFamily: 'monospace', height: '2.25rem' }} />
+                            </div>
+                            <p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>Nome do @param usado no SQL abaixo</p>
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500 }}>
+                              SQL de Expansão <span style={{ color: '#ef4444' }}>*</span>
+                            </label>
+                            <button type="button" onClick={handleTestExpandSql} disabled={expandSqlTest.status === 'testing' || !expandSql.trim()}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.25rem 0.6rem', borderRadius: '0.375rem', fontSize: '0.75rem', fontWeight: 500, background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', cursor: 'pointer' }}>
+                              <FlaskConical style={{ width: '0.75rem', height: '0.75rem' }} />
+                              {expandSqlTest.status === 'testing' ? 'Testando...' : 'Testar SQL'}
+                            </button>
+                          </div>
+                          {expandSqlTest.status !== 'idle' && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.75rem', color: expandSqlTest.status === 'ok' ? '#16a34a' : expandSqlTest.status === 'error' ? '#dc2626' : '#6b7280' }}>
+                              {expandSqlTest.status === 'ok' && <CheckCircle2 style={{ width: '0.875rem', height: '0.875rem' }} />}
+                              {expandSqlTest.status === 'error' && <XCircle style={{ width: '0.875rem', height: '0.875rem' }} />}
+                              {expandSqlTest.message}
+                            </div>
+                          )}
+                          <textarea rows={6} value={expandSql}
+                            placeholder={`SELECT * FROM detalhes WHERE codigo = @${expandParamName || 'codigo'}`}
+                            onChange={e => { setExpandSql(e.target.value); setExpandSqlTest({ status: 'idle' }); }}
+                            style={{
+                              ...inputStyle, padding: '0.75rem', resize: 'vertical',
+                              fontFamily: 'monospace', fontSize: '0.8125rem',
+                              backgroundColor: '#020617', color: '#4ade80', borderColor: '#374151',
+                            }} />
+                          <p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>
+                            Use <code style={{ background: '#f3f4f6', padding: '0 3px', borderRadius: 3 }}>@{expandParamName || 'param'}</code> onde o valor da coluna-chave será substituído.
+                          </p>
+                        </div>
                       </div>
                     )}
                   </CardContent>
