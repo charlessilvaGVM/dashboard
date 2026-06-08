@@ -339,6 +339,14 @@ export default function DashboardView() {
   const [expandResults, setExpandResults] = useState<Record<string, Record<string, unknown>[]>>({});
   const [expandLoading, setExpandLoading] = useState<Set<string>>(new Set());
 
+  // ── drill modal ───────────────────────────────────────────
+  const [drillOpen,    setDrillOpen]    = useState(false);
+  const [drillTitle,   setDrillTitle]   = useState('');
+  const [drillData,    setDrillData]    = useState<Record<string, unknown>[] | null>(null);
+  const [drillCols,    setDrillCols]    = useState<string[]>([]);
+  const [drillLoading, setDrillLoading] = useState(false);
+  const [drillError,   setDrillError]   = useState<string | null>(null);
+
   // Config from backend .env
   const { data: appConfig } = useQuery({
     queryKey: ['app-config'],
@@ -575,6 +583,29 @@ export default function DashboardView() {
       setExpandLoading(prev => { const n = new Set(prev); n.delete(rowKey); return n; });
     }
   }, [expandedRows, expandResults, expandConfig, params, dashboard?.params, id]);
+
+  const handleDrill = useCallback(async (cellValue: string) => {
+    if (!expandConfig?.drill) return;
+    const drill = expandConfig.drill;
+    setDrillTitle(drill.title || cellValue);
+    setDrillData(null);
+    setDrillCols([]);
+    setDrillError(null);
+    setDrillOpen(true);
+    setDrillLoading(true);
+    try {
+      const allTypedParams = dashboard?.params ?? [];
+      const drillParam = { [drill.paramName]: cellValue };
+      const { sql: finalSql, nonComboParams } = applyComboParamsToSql(drill.sql, { ...params, ...drillParam }, allTypedParams);
+      const result = await executeQuery(finalSql, { ...nonComboParams, ...drillParam }, Number(id));
+      setDrillData(result.rows);
+      setDrillCols(result.columns.map(c => c.name));
+    } catch (e) {
+      setDrillError(e instanceof Error ? e.message : 'Erro ao executar drill');
+    } finally {
+      setDrillLoading(false);
+    }
+  }, [expandConfig, params, dashboard?.params, id]);
 
   const numericCols = useMemo(() => {
     if (!queryResult || queryResult.rows.length === 0) return new Set<string>();
@@ -1408,9 +1439,20 @@ export default function DashboardView() {
                                         <tbody>
                                           {expandedData.map((subRow, si) => (
                                             <tr key={si} style={{ borderTop: '1px solid #e2e8f0', background: si % 2 === 1 ? '#f1f5f9' : '#fff' }}>
-                                              {Object.keys(expandedData[0]).map(col => (
-                                                <td key={col} style={{ padding: '0.35rem 0.75rem', whiteSpace: 'nowrap' }}>{formatValue(subRow[col])}</td>
-                                              ))}
+                                              {Object.keys(expandedData[0]).map(col => {
+                                                const isDrillCol = expandConfig?.drill?.clickColumn === col;
+                                                const cellVal = String(subRow[col] ?? '');
+                                                return (
+                                                  <td key={col} style={{ padding: '0.35rem 0.75rem', whiteSpace: 'nowrap' }}>
+                                                    {isDrillCol && cellVal ? (
+                                                      <button onClick={() => handleDrill(cellVal)}
+                                                        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#2563eb', textDecoration: 'underline', fontSize: 'inherit', fontFamily: 'inherit' }}>
+                                                        {formatValue(subRow[col])}
+                                                      </button>
+                                                    ) : formatValue(subRow[col])}
+                                                  </td>
+                                                );
+                                              })}
                                             </tr>
                                           ))}
                                         </tbody>
@@ -1621,6 +1663,75 @@ export default function DashboardView() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ── expand drill modal ──────────────────────────────────────────── */}
+      {drillOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={e => { if (e.target === e.currentTarget) setDrillOpen(false); }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} />
+          <div style={{ position: 'relative', background: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', borderRadius: '0.5rem', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', width: '90vw', maxWidth: '1100px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            {/* header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.875rem 1.25rem', borderBottom: '1px solid hsl(var(--border))', flexShrink: 0 }}>
+              <span style={{ fontWeight: 600, fontSize: '0.9375rem' }}>{drillTitle || 'Detalhe'}</span>
+              <button onClick={() => setDrillOpen(false)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.25rem', lineHeight: 1, color: 'hsl(var(--muted-foreground))', padding: '0.1rem 0.3rem', borderRadius: '0.25rem' }}>
+                ×
+              </button>
+            </div>
+            {/* body */}
+            <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '0.75rem 1rem' }}>
+              {drillLoading && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '3rem', color: 'hsl(var(--muted-foreground))' }}>
+                  <svg style={{ width: '1.5rem', height: '1.5rem', animation: 'spin 1s linear infinite', marginRight: '0.5rem' }} viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" opacity="0.25"/>
+                    <path fill="currentColor" opacity="0.75" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                  </svg>
+                  Carregando...
+                </div>
+              )}
+              {drillError && (
+                <div style={{ padding: '1rem', color: '#dc2626', background: '#fef2f2', borderRadius: '0.375rem', fontSize: '0.875rem' }}>
+                  {drillError}
+                </div>
+              )}
+              {!drillLoading && !drillError && drillData !== null && (
+                drillData.length === 0 ? (
+                  <p style={{ textAlign: 'center', padding: '2rem', color: 'hsl(var(--muted-foreground))', fontSize: '0.875rem' }}>Nenhum resultado.</p>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
+                    <thead>
+                      <tr style={{ background: 'hsl(var(--muted))' }}>
+                        {drillCols.map(col => (
+                          <th key={col} style={{ padding: '0.5rem 0.75rem', textAlign: 'left', fontWeight: 600, whiteSpace: 'nowrap', color: 'hsl(var(--muted-foreground))', borderBottom: '1px solid hsl(var(--border))', position: 'sticky', top: 0, background: 'hsl(var(--muted))' }}>
+                            {col}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {drillData.map((row, i) => (
+                        <tr key={i} style={{ borderBottom: '1px solid hsl(var(--border))', background: i % 2 === 1 ? 'hsl(var(--muted)/0.3)' : 'transparent' }}>
+                          {drillCols.map(col => (
+                            <td key={col} style={{ padding: '0.4rem 0.75rem', whiteSpace: 'nowrap' }}>
+                              {formatValue(row[col])}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )
+              )}
+            </div>
+            {/* footer */}
+            {!drillLoading && drillData && drillData.length > 0 && (
+              <div style={{ padding: '0.5rem 1.25rem', borderTop: '1px solid hsl(var(--border))', flexShrink: 0, fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>
+                {drillData.length} linha(s)
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </AppLayout>
   );
 }

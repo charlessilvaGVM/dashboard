@@ -133,7 +133,25 @@ function validateExpandConfig(cfg) {
   if (sql.length > MAX_SQL_LENGTH) throw new Error('expand_config.sql muito longo (máx 50 KB)');
   if (!/^SELECT\s+/i.test(sql)) throw new Error('expand_config.sql deve ser uma consulta SELECT');
   if (dangerous.test(sql)) throw new Error('expand_config.sql contém instrução não permitida');
-  return { clickColumn: clickColumn || null, paramName: paramName || null, sql };
+
+  let drill = null;
+  if (cfg.drill && typeof cfg.drill === 'object') {
+    const dc = String(cfg.drill.clickColumn || '').trim();
+    const dp = String(cfg.drill.paramName   || '').trim();
+    if (!dc) throw new Error('expand_config.drill.clickColumn é obrigatório');
+    if (!dp) throw new Error('expand_config.drill.paramName é obrigatório');
+    if (!IDENT_RE.test(dc)) throw new Error(`expand_config.drill.clickColumn inválido: "${dc}"`);
+    if (!IDENT_RE.test(dp)) throw new Error(`expand_config.drill.paramName inválido: "${dp}"`);
+    const dsql = String(cfg.drill.sql || '').trim();
+    if (!dsql) throw new Error('expand_config.drill.sql é obrigatório');
+    if (dsql.length > MAX_SQL_LENGTH) throw new Error('expand_config.drill.sql muito longo (máx 50 KB)');
+    if (!/^SELECT\s+/i.test(dsql)) throw new Error('expand_config.drill.sql deve ser uma consulta SELECT');
+    if (dangerous.test(dsql)) throw new Error('expand_config.drill.sql contém instrução não permitida');
+    const title = cfg.drill.title ? String(cfg.drill.title).trim().slice(0, 255) : null;
+    drill = { clickColumn: dc, paramName: dp, sql: dsql, title };
+  }
+
+  return { clickColumn: clickColumn || null, paramName: paramName || null, sql, drill };
 }
 
 // N7 — Valida tipo e tamanho de descricao

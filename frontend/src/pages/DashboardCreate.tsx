@@ -157,6 +157,12 @@ export default function DashboardCreate() {
   const [expandParamName,   setExpandParamName]   = useState('');
   const [expandSql,         setExpandSql]         = useState('');
   const [expandSqlTest,     setExpandSqlTest]     = useState<{ status: 'idle' | 'testing' | 'ok' | 'error'; message?: string }>({ status: 'idle' });
+  const [drillEnabled,      setDrillEnabled]      = useState(false);
+  const [drillClickColumn,  setDrillClickColumn]  = useState('');
+  const [drillParamName,    setDrillParamName]    = useState('');
+  const [drillTitle,        setDrillTitle]        = useState('');
+  const [drillSql,          setDrillSql]          = useState('');
+  const [drillSqlTest,      setDrillSqlTest]      = useState<{ status: 'idle' | 'testing' | 'ok' | 'error'; message?: string }>({ status: 'idle' });
 
   interface ExtraChartRow {
     _id: string; enabled: boolean; title: string;
@@ -179,6 +185,8 @@ export default function DashboardCreate() {
   const sqlLineNumRef         = useRef<HTMLDivElement>(null);
   const expandSqlTextareaRef  = useRef<HTMLTextAreaElement>(null);
   const expandSqlLineNumRef   = useRef<HTMLDivElement>(null);
+  const drillSqlTextareaRef   = useRef<HTMLTextAreaElement>(null);
+  const drillSqlLineNumRef    = useRef<HTMLDivElement>(null);
 
   const { data: existing, isLoading: loadingDashboard } = useQuery({
     queryKey: ['dashboard', id],
@@ -223,6 +231,13 @@ export default function DashboardCreate() {
         setExpandClickColumn(existing.expand_config.clickColumn ?? '');
         setExpandParamName(existing.expand_config.paramName ?? '');
         setExpandSql(existing.expand_config.sql);
+        if (existing.expand_config.drill) {
+          setDrillEnabled(true);
+          setDrillClickColumn(existing.expand_config.drill.clickColumn ?? '');
+          setDrillParamName(existing.expand_config.drill.paramName ?? '');
+          setDrillTitle(existing.expand_config.drill.title ?? '');
+          setDrillSql(existing.expand_config.drill.sql ?? '');
+        }
       }
       const loaded = (existing.extra_charts || []).slice(0, 3);
       setExtraChartRows([0, 1, 2].map(i => {
@@ -273,6 +288,17 @@ export default function DashboardCreate() {
       setExpandSqlTest(result.valid ? { status: 'ok', message: 'Sintaxe válida' } : { status: 'error', message: result.error || 'Erro de sintaxe' });
     } catch (err: unknown) {
       setExpandSqlTest({ status: 'error', message: err instanceof Error ? err.message : 'Erro ao testar' });
+    }
+  };
+
+  const handleTestDrillSql = async () => {
+    if (!drillSql.trim()) return;
+    setDrillSqlTest({ status: 'testing' });
+    try {
+      const result = await testQuery(drillSql.trim());
+      setDrillSqlTest(result.valid ? { status: 'ok', message: 'Sintaxe válida' } : { status: 'error', message: result.error || 'Erro de sintaxe' });
+    } catch (err: unknown) {
+      setDrillSqlTest({ status: 'error', message: err instanceof Error ? err.message : 'Erro ao testar' });
     }
   };
 
@@ -354,9 +380,17 @@ export default function DashboardCreate() {
       : null,
     refresh_interval: Math.max(0, parseInt(refreshInterval) || 0),
     connection_id: connectionId ? parseInt(connectionId) || null : null,
-    expand_config: (expandEnabled && expandSql.trim())
-      ? { clickColumn: expandClickColumn.trim() || null, paramName: expandParamName.trim() || null, sql: expandSql.trim() } as DashboardExpand
-      : null,
+    expand_config: (expandEnabled && expandSql.trim()) ? {
+      clickColumn: expandClickColumn.trim() || null,
+      paramName:   expandParamName.trim()   || null,
+      sql:         expandSql.trim(),
+      drill: (drillEnabled && drillSql.trim() && drillClickColumn.trim() && drillParamName.trim()) ? {
+        clickColumn: drillClickColumn.trim(),
+        paramName:   drillParamName.trim(),
+        sql:         drillSql.trim(),
+        title:       drillTitle.trim() || null,
+      } : null,
+    } as DashboardExpand : null,
     extra_charts: extraChartRows
       .filter(c => c.enabled && c.sql.trim())
       .map(c => ({ title: c.title.trim(), sql_query: c.sql.trim(), chart_type: c.chartType, chart_config: null }) as ExtraChart),
@@ -1173,11 +1207,11 @@ export default function DashboardCreate() {
                   <CardHeader>
                     <div>
                       <CardTitle className="flex items-center gap-2 text-base">
-                        <span style={{ fontSize: '1.1rem', lineHeight: 1 }}>⊕</span>
+                        <span style={{ fontSize: '1.1rem', lineHeight: 1 }}>⎿</span>
                         Expansão Inline
                       </CardTitle>
                       <CardDescription className="mt-1">
-                        Exibe um botão ⊕ em cada linha da tabela. Ao clicar, executa um segundo SQL e mostra os resultados diretamente abaixo da linha, como um pivot Excel.
+                        Exibe um botão ⊕ em cada linha da tabela. Ao clicar, executa um segundo SQL e mostra os resultados diretamente abaixo da linha, como uma tabela dinâmica do Excel.
                       </CardDescription>
                     </div>
                   </CardHeader>
@@ -1266,6 +1300,78 @@ export default function DashboardCreate() {
                           <p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>
                             Use <code style={{ background: '#f3f4f6', padding: '0 3px', borderRadius: 3 }}>@{expandParamName || 'param'}</code> onde o valor da coluna-chave será substituído.
                           </p>
+                        </div>
+
+                        {/* ── Drill do expand ─────────────────────────── */}
+                        <div style={{ borderTop: '1px solid hsl(var(--border))', paddingTop: '1rem' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8125rem', fontWeight: 500, cursor: 'pointer', marginBottom: '0.75rem' }}>
+                            <input type="checkbox" checked={drillEnabled} onChange={e => setDrillEnabled(e.target.checked)}
+                              style={{ accentColor: '#2563eb', width: '1rem', height: '1rem' }} />
+                            Habilitar drill (clique em célula do resultado abre modal)
+                          </label>
+                          {drillEnabled && (
+                            <div className="space-y-3 rounded-lg border p-3" style={{ borderColor: '#374151', backgroundColor: '#0f172a20' }}>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+                                <div className="space-y-1">
+                                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500 }}>Coluna clicável</label>
+                                  <input type="text" value={drillClickColumn} placeholder="ex: Vendedor"
+                                    onChange={e => setDrillClickColumn(e.target.value)}
+                                    style={{ ...inputStyle, fontFamily: 'monospace', height: '2.25rem' }} />
+                                  <p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>Coluna no resultado do expand</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500 }}>Parâmetro no SQL</label>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '2px', height: '2.25rem' }}>
+                                    <span style={{ fontFamily: 'monospace', color: '#2563eb', fontSize: '0.875rem' }}>@</span>
+                                    <input type="text" value={drillParamName} placeholder="vendedor"
+                                      onChange={e => setDrillParamName(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+                                      style={{ ...inputStyle, fontFamily: 'monospace', height: '2.25rem' }} />
+                                  </div>
+                                  <p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>@param do SQL abaixo</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500 }}>Título do modal</label>
+                                  <input type="text" value={drillTitle} placeholder="ex: Pedidos do Vendedor"
+                                    onChange={e => setDrillTitle(e.target.value)}
+                                    style={{ ...inputStyle, height: '2.25rem' }} />
+                                  <p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>Opcional</p>
+                                </div>
+                              </div>
+                              <div className="space-y-1">
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                  <label style={{ fontSize: '0.8125rem', fontWeight: 500 }}>
+                                    SQL do Drill <span style={{ color: '#ef4444' }}>*</span>
+                                  </label>
+                                  <button type="button" onClick={handleTestDrillSql} disabled={drillSqlTest.status === 'testing' || !drillSql.trim()}
+                                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.25rem 0.6rem', borderRadius: '0.375rem', fontSize: '0.75rem', fontWeight: 500, background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', cursor: 'pointer' }}>
+                                    <FlaskConical style={{ width: '0.75rem', height: '0.75rem' }} />
+                                    {drillSqlTest.status === 'testing' ? 'Testando...' : 'Testar SQL'}
+                                  </button>
+                                </div>
+                                {drillSqlTest.status !== 'idle' && (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.75rem', color: drillSqlTest.status === 'ok' ? '#16a34a' : drillSqlTest.status === 'error' ? '#dc2626' : '#6b7280' }}>
+                                    {drillSqlTest.status === 'ok' && <CheckCircle2 style={{ width: '0.875rem', height: '0.875rem' }} />}
+                                    {drillSqlTest.status === 'error' && <XCircle style={{ width: '0.875rem', height: '0.875rem' }} />}
+                                    {drillSqlTest.message}
+                                  </div>
+                                )}
+                                <div style={{ display: 'flex', borderRadius: '0.375rem', overflow: 'hidden', border: '1px solid #374151', backgroundColor: '#020617', minHeight: '8rem' }}>
+                                  <div ref={drillSqlLineNumRef}
+                                    style={{ fontFamily: 'monospace', fontSize: '0.875rem', lineHeight: '1.5rem', padding: '0.75rem 0.5rem 0.75rem 0.4rem', backgroundColor: '#0f172a', color: '#4b5563', borderRight: '1px solid #1e293b', textAlign: 'right', userSelect: 'none', overflowY: 'hidden', minWidth: '2.8rem' }}>
+                                    {drillSql.split('\n').map((_, i) => <div key={i}>{i + 1}</div>)}
+                                  </div>
+                                  <textarea ref={drillSqlTextareaRef} value={drillSql}
+                                    placeholder={`SELECT * FROM pedidos WHERE vendedor = @${drillParamName || 'vendedor'}`}
+                                    onChange={e => { setDrillSql(e.target.value); setDrillSqlTest({ status: 'idle' }); }}
+                                    onScroll={() => { if (drillSqlLineNumRef.current && drillSqlTextareaRef.current) drillSqlLineNumRef.current.scrollTop = drillSqlTextareaRef.current.scrollTop; }}
+                                    style={{ flex: 1, padding: '0.75rem', resize: 'none', border: 'none', outline: 'none', fontFamily: 'monospace', fontSize: '0.875rem', lineHeight: '1.5rem', backgroundColor: '#020617', color: '#4ade80', minHeight: '8rem' }} />
+                                </div>
+                                <p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>
+                                  Use <code style={{ background: '#f3f4f6', padding: '0 3px', borderRadius: 3 }}>@{drillParamName || 'vendedor'}</code> onde o valor da célula clicada será substituído.
+                                </p>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}

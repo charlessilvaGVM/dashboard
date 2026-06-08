@@ -96,10 +96,18 @@ export interface DashboardAction {
   targetParam: string;       // @param no dashboard destino (apenas type='row')
 }
 
-export interface DashboardExpand {
-  clickColumn: string | null; // coluna cujo valor é passado para o @param (opcional)
-  paramName: string | null;   // nome do @param no SQL de expansão (opcional)
+export interface ExpandDrill {
+  clickColumn: string;  // coluna no resultado do expand cujo valor é passado
+  paramName: string;    // nome do @param no SQL do drill
   sql: string;
+  title?: string | null;
+}
+
+export interface DashboardExpand {
+  clickColumn: string | null;
+  paramName: string | null;
+  sql: string;
+  drill?: ExpandDrill | null;
 }
 
 export interface ExtraChart {
