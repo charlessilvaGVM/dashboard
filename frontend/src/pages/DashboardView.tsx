@@ -27,7 +27,7 @@ import {
   getDashboard, executeQuery, getConfig, isAdmin, saveChartConfig, saveExtraChartConfig,
   extractSqlParams, getParamDefault, applyComboParamsToSql,
   type QueryResult, type DashboardParam, type ChartType,
-  type DashboardLink, type DashboardAction, type ChartConfig, type ExtraChart,
+  type DashboardLink, type DashboardAction, type ChartConfig, type ExtraChart, type DashboardExpand,
 } from '@/services/api';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
@@ -89,6 +89,10 @@ function isNumericVal(value: unknown): boolean {
 function formatValue(value: unknown): string {
   if (value === null || value === undefined) return '';
   if (typeof value === 'object') return JSON.stringify(value);
+  const num = Number(value);
+  if (!isNaN(num) && value !== '' && String(value).trim() !== '') {
+    return num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
   return String(value);
 }
 
@@ -331,6 +335,9 @@ export default function DashboardView() {
   const [savingChart,   setSavingChart]   = useState(false);
   const [tableFilter,   setTableFilter]   = useState('');
   const [extraChartResults, setExtraChartResults] = useState<(QueryResult | null)[]>([null, null, null]);
+  const [expandedRows,  setExpandedRows]  = useState<Set<string>>(new Set());
+  const [expandResults, setExpandResults] = useState<Record<string, Record<string, unknown>[]>>({});
+  const [expandLoading, setExpandLoading] = useState<Set<string>>(new Set());
 
   // Config from backend .env
   const { data: appConfig } = useQuery({
@@ -361,6 +368,8 @@ export default function DashboardView() {
     setSortConfig({ col: '', dir: null });
     setCurrentPage(1);
     setTableFilter('');
+    setExpandedRows(new Set());
+    setExpandResults({});
     try {
       const extraPromises = (extraSqls ?? []).map(s =>
         s.trim() ? executeQuery(s, queryParams, Number(id)) : Promise.resolve(null)
@@ -410,7 +419,16 @@ export default function DashboardView() {
     const initial: Record<string, string> = {};
     if (dashboard.params && dashboard.params.length > 0) {
       // use stored typed params with their saved default values
-      dashboard.params.forEach(p => { initial[p.name] = p.defaultValue ?? ''; });
+      dashboard.params.forEach(p => {
+        const saved = p.defaultValue ?? '';
+        if (saved !== '') {
+          initial[p.name] = saved;
+        } else if (p.type === 'combo' && p.comboOptions && p.comboOptions.length > 0) {
+          initial[p.name] = p.comboOptions[0].value;
+        } else {
+          initial[p.name] = saved;
+        }
+      });
     } else {
       // fall back: auto-detect @names from SQL
       extractSqlParams(dashboard.sql_query).forEach(n => {
@@ -483,7 +501,11 @@ export default function DashboardView() {
   }, [dashboard?.links]);
 
   // list of navigation action buttons
-  const actionList = useMemo<DashboardAction[]>(() => dashboard?.actions || [], [dashboard?.actions]);
+  const actionList    = useMemo<DashboardAction[]>(() => dashboard?.actions || [], [dashboard?.actions]);
+  // ações diretas: botões fixos no cabeçalho, sem precisar de linha/coluna
+  const directActions = useMemo(() => actionList.filter(a => a.type === 'direct'), [actionList]);
+  // ações de linha: coluna extra na tabela (comportamento original)
+  const rowActions    = useMemo(() => actionList.filter(a => a.type !== 'direct'), [actionList]);
 
   // map colName (lowercase) → hint text for case-insensitive lookup
   const hintMap = useMemo<Record<string, string>>(() => {
@@ -527,6 +549,32 @@ export default function DashboardView() {
   const runDrill = useCallback((state: DrillState) => {
     runDrillWith(state.baseSql, state.fixedParams, state.extraParams);
   }, [runDrillWith]);
+
+  // ── inline expand (⊕/⊖) ──────────────────────────────────────────────
+  const expandConfig = useMemo<DashboardExpand | null>(() => dashboard?.expand_config ?? null, [dashboard?.expand_config]);
+
+  const handleExpand = useCallback(async (rowKey: string, keyVal: string) => {
+    if (expandedRows.has(rowKey)) {
+      setExpandedRows(prev => { const n = new Set(prev); n.delete(rowKey); return n; });
+      return;
+    }
+    if (expandResults[rowKey]) {
+      setExpandedRows(prev => new Set([...prev, rowKey]));
+      return;
+    }
+    if (!expandConfig) return;
+    setExpandLoading(prev => new Set([...prev, rowKey]));
+    try {
+      const allTypedParams = dashboard?.params ?? [];
+      const extraParam = (expandConfig.paramName && keyVal) ? { [expandConfig.paramName]: keyVal } : {};
+      const { sql: expandSql, nonComboParams } = applyComboParamsToSql(expandConfig.sql, { ...params, ...extraParam }, allTypedParams);
+      const result = await executeQuery(expandSql, { ...nonComboParams, ...extraParam }, Number(id));
+      setExpandResults(prev => ({ ...prev, [rowKey]: result.rows }));
+      setExpandedRows(prev => new Set([...prev, rowKey]));
+    } catch { } finally {
+      setExpandLoading(prev => { const n = new Set(prev); n.delete(rowKey); return n; });
+    }
+  }, [expandedRows, expandResults, expandConfig, params, dashboard?.params, id]);
 
   const numericCols = useMemo(() => {
     if (!queryResult || queryResult.rows.length === 0) return new Set<string>();
@@ -654,7 +702,7 @@ export default function DashboardView() {
         {/* ── header ────────────────────────────────────────────────────── */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <Button variant="outline" size="icon" onClick={() => navigate('/dashboards')}>
+            <Button variant="outline" size="icon" onClick={() => window.history.length > 1 ? navigate(-1) : navigate('/dashboards')}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
             <div>
@@ -684,6 +732,18 @@ export default function DashboardView() {
                 {refreshEnabled ? `${countdown}s` : 'Auto'}
               </button>
             )}
+            {directActions.map((act, ai) => (
+              <Button
+                key={ai}
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => navigate(`/dashboards/${act.targetDashboardId}`)}
+                title={`Ir para: ${act.label}`}
+              >
+                {act.label}
+              </Button>
+            ))}
             {admin && (
               <Button variant="outline" size="sm" className="gap-2" onClick={() => navigate(`/dashboards/${id}/edit`)}>
                 <Pencil className="h-4 w-4" />
@@ -1173,10 +1233,14 @@ export default function DashboardView() {
                   <table className="min-w-full text-sm border-collapse">
                     <thead>
                       <tr className="border-b bg-muted/40">
-                        {actionList.length > 0 && (
+                        {expandConfig && (
+                          <th style={{ position: 'sticky', top: 0, backgroundColor: 'hsl(var(--muted)/0.4)', backdropFilter: 'blur(4px)', zIndex: 1, width: '2rem' }}
+                            className="px-2 py-3" />
+                        )}
+                        {rowActions.length > 0 && (
                           <th
-                            style={{ position: 'sticky', top: 0, backgroundColor: 'hsl(var(--muted)/0.4)', backdropFilter: 'blur(4px)', zIndex: 1 }}
-                            className="px-3 py-3 font-semibold text-muted-foreground whitespace-nowrap text-left"
+                            style={{ position: 'sticky', top: 0, backgroundColor: 'hsl(var(--muted)/0.4)', backdropFilter: 'blur(4px)', zIndex: 1, fontSize: '0.95rem' }}
+                            className="px-3 py-3 font-bold text-muted-foreground whitespace-nowrap text-left"
                           >
                             Ações
                           </th>
@@ -1189,7 +1253,7 @@ export default function DashboardView() {
                             <th
                               key={col.name}
                               onClick={() => handleSort(col.name)}
-                              className={`px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap cursor-pointer hover:bg-muted/80 select-none transition-colors group ${isNum ? 'text-right' : 'text-left'}`}
+                              className={`px-4 py-3 font-bold text-muted-foreground whitespace-nowrap cursor-pointer hover:bg-muted/80 select-none transition-colors group ${isNum ? 'text-right' : 'text-left'}`} style={{ fontSize: '0.95rem' }}
                               style={{ position: 'sticky', top: 0, backgroundColor: 'hsl(var(--muted)/0.4)', backdropFilter: 'blur(4px)', zIndex: 1 }}
                             >
                               <div className={`flex items-center gap-1.5 ${isNum ? 'flex-row-reverse justify-start' : ''}`}>
@@ -1224,82 +1288,141 @@ export default function DashboardView() {
                       </tr>
                     </thead>
                     <tbody>
-                      {paginatedRows.map((row, idx) => (
-                        <tr key={idx} className={`border-b hover:bg-muted/40 transition-colors ${idx % 2 === 1 ? 'bg-muted/20' : ''}`}>
-                          {actionList.length > 0 && (
-                            <td className="px-3 py-2 whitespace-nowrap">
-                              <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
-                                {actionList.map((act, ai) => {
-                                  const val = formatValue(row[act.sourceColumn]);
-                                  const disabled = !val;
-                                  return (
-                                    <button
-                                      key={ai}
-                                      disabled={disabled}
-                                      onClick={() => {
-                                        const p = new URLSearchParams({ [act.targetParam]: val });
-                                        navigate(`/dashboards/${act.targetDashboardId}?${p.toString()}`);
-                                      }}
-                                      style={{
-                                        display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
-                                        padding: '0.2rem 0.6rem', borderRadius: '0.375rem',
-                                        fontSize: '0.75rem', fontWeight: 500, cursor: disabled ? 'not-allowed' : 'pointer',
-                                        border: '1px solid #2563eb',
-                                        background: disabled ? '#f3f4f6' : '#eff6ff',
-                                        color: disabled ? '#9ca3af' : '#1d4ed8',
-                                        transition: 'all 0.15s',
-                                        opacity: disabled ? 0.5 : 1,
-                                      }}
-                                      onMouseOver={e => { if (!disabled) e.currentTarget.style.background = '#dbeafe'; }}
-                                      onMouseOut={e => { if (!disabled) e.currentTarget.style.background = '#eff6ff'; }}
-                                      title={disabled ? 'Valor não disponível' : `${act.label}: ${val}`}
-                                    >
-                                      {act.label}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </td>
-                          )}
-                          {queryResult.columns.map(col => {
-                            const val        = row[col.name];
-                            const displayVal = formatValue(val);
-                            const isNull     = val === null || val === undefined;
-                            const isNum      = numericCols.has(col.name);
-                            const link       = linkMap.get(col.name);
-                            const clickable  = link && !isNull;
-                            return (
-                              <td
-                                key={col.name}
-                                title={clickable ? `Drill-down → ${link!.label || ''} (${link!.paramName}=${formatValue(resolveColValue(row, link!.valueColumn))})` : displayVal}
-                                className={`px-4 py-2.5 whitespace-nowrap ${isNum ? 'text-right font-mono' : 'text-left'}`}
-                              >
-                                {isNull ? (
-                                  <span className="text-muted-foreground/40 italic text-xs">NULL</span>
-                                ) : clickable ? (
+                      {paginatedRows.map((row, idx) => {
+                        const rowKey = String(idx);
+                        const isExpanded     = expandConfig ? expandedRows.has(rowKey) : false;
+                        const isExpandLoad   = expandConfig ? expandLoading.has(rowKey) : false;
+                        const expandedData   = expandConfig ? expandResults[rowKey] : undefined;
+                        const expandVal      = (expandConfig?.clickColumn) ? String(row[expandConfig.clickColumn] ?? '') : '';
+                        const expandActive   = !expandConfig?.clickColumn || !!expandVal;
+                        const colCount       = queryResult.columns.length + (rowActions.length > 0 ? 1 : 0) + (expandConfig ? 1 : 0);
+                        return (
+                          <React.Fragment key={idx}>
+                            <tr className={`border-b hover:bg-muted/40 transition-colors ${idx % 2 === 1 ? 'bg-muted/20' : ''}`}>
+                              {expandConfig && (
+                                <td className="px-2 py-2 text-center" style={{ width: '2rem' }}>
                                   <button
-                                    onClick={() => {
-                                      const paramVal = formatValue(resolveColValue(row, link!.valueColumn));
-                                      openDrill(link!, paramVal);
-                                    }}
+                                    onClick={() => handleExpand(rowKey, expandVal)}
+                                    disabled={!expandActive || isExpandLoad}
+                                    title={isExpanded ? 'Recolher' : 'Expandir detalhe'}
                                     style={{
-                                      fontFamily: isNum ? 'monospace' : undefined,
-                                      color: '#2563eb', textDecoration: 'underline',
-                                      textDecorationStyle: 'dotted', background: 'none',
-                                      border: 'none', padding: 0, cursor: 'pointer',
-                                      fontSize: 'inherit', textAlign: isNum ? 'right' : 'left',
+                                      background: 'none', border: 'none', padding: '0.1rem',
+                                      cursor: expandActive && !isExpandLoad ? 'pointer' : 'not-allowed',
+                                      fontSize: '1.1rem', lineHeight: 1,
+                                      color: isExpanded ? '#dc2626' : '#2563eb',
+                                      opacity: expandActive ? 1 : 0.3,
                                     }}
                                   >
-                                    {displayVal}
+                                    {isExpandLoad ? '⟳' : isExpanded ? '⊖' : '⊕'}
                                   </button>
-                                ) : (
-                                  <span>{displayVal}</span>
-                                )}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
+                                </td>
+                              )}
+                              {rowActions.length > 0 && (
+                                <td className="px-3 py-2 whitespace-nowrap">
+                                  <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
+                                    {rowActions.map((act, ai) => {
+                                      const val = formatValue(row[act.sourceColumn]);
+                                      const disabled = !val;
+                                      return (
+                                        <button
+                                          key={ai}
+                                          disabled={disabled}
+                                          onClick={() => {
+                                            const p = new URLSearchParams({ [act.targetParam]: val });
+                                            navigate(`/dashboards/${act.targetDashboardId}?${p.toString()}`);
+                                          }}
+                                          style={{
+                                            display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                            padding: '0.2rem 0.6rem', borderRadius: '0.375rem',
+                                            fontSize: '0.75rem', fontWeight: 500, cursor: disabled ? 'not-allowed' : 'pointer',
+                                            border: '1px solid #2563eb',
+                                            background: disabled ? '#f3f4f6' : '#eff6ff',
+                                            color: disabled ? '#9ca3af' : '#1d4ed8',
+                                            transition: 'all 0.15s',
+                                            opacity: disabled ? 0.5 : 1,
+                                          }}
+                                          onMouseOver={e => { if (!disabled) e.currentTarget.style.background = '#dbeafe'; }}
+                                          onMouseOut={e => { if (!disabled) e.currentTarget.style.background = '#eff6ff'; }}
+                                          title={disabled ? 'Valor não disponível' : `${act.label}: ${val}`}
+                                        >
+                                          {act.label}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </td>
+                              )}
+                              {queryResult.columns.map(col => {
+                                const val        = row[col.name];
+                                const displayVal = formatValue(val);
+                                const isNull     = val === null || val === undefined;
+                                const isNum      = numericCols.has(col.name);
+                                const link       = linkMap.get(col.name);
+                                const clickable  = link && !isNull;
+                                return (
+                                  <td
+                                    key={col.name}
+                                    title={clickable ? `Drill-down → ${link!.label || ''} (${link!.paramName}=${formatValue(resolveColValue(row, link!.valueColumn))})` : displayVal}
+                                    className={`px-4 py-2.5 whitespace-nowrap ${isNum ? 'text-right font-mono' : 'text-left'}`}
+                                  >
+                                    {isNull ? (
+                                      <span className="text-muted-foreground/40 italic text-xs">NULL</span>
+                                    ) : clickable ? (
+                                      <button
+                                        onClick={() => {
+                                          const paramVal = formatValue(resolveColValue(row, link!.valueColumn));
+                                          openDrill(link!, paramVal);
+                                        }}
+                                        style={{
+                                          fontFamily: isNum ? 'monospace' : undefined,
+                                          color: '#2563eb', textDecoration: 'underline',
+                                          textDecorationStyle: 'dotted', background: 'none',
+                                          border: 'none', padding: 0, cursor: 'pointer',
+                                          fontSize: 'inherit', textAlign: isNum ? 'right' : 'left',
+                                        }}
+                                      >
+                                        {displayVal}
+                                      </button>
+                                    ) : (
+                                      <span>{displayVal}</span>
+                                    )}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                            {expandConfig && isExpanded && (
+                              <tr>
+                                <td colSpan={colCount} style={{ padding: '0 0 0.5rem 0', background: 'hsl(var(--muted)/0.15)' }}>
+                                  <div style={{ margin: '0 1rem 0 2.5rem', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '0.375rem', overflow: 'auto' }}>
+                                    {!expandedData || expandedData.length === 0 ? (
+                                      <p style={{ padding: '0.75rem 1rem', fontSize: '0.8125rem', color: '#94a3b8' }}>Nenhum resultado</p>
+                                    ) : (
+                                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
+                                        <thead>
+                                          <tr style={{ background: '#e2e8f0' }}>
+                                            {Object.keys(expandedData[0]).map(col => (
+                                              <th key={col} style={{ padding: '0.4rem 0.75rem', fontWeight: 600, textAlign: 'left', whiteSpace: 'nowrap', color: '#475569', borderBottom: '1px solid #cbd5e1' }}>{col}</th>
+                                            ))}
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {expandedData.map((subRow, si) => (
+                                            <tr key={si} style={{ borderTop: '1px solid #e2e8f0', background: si % 2 === 1 ? '#f1f5f9' : '#fff' }}>
+                                              {Object.keys(expandedData[0]).map(col => (
+                                                <td key={col} style={{ padding: '0.35rem 0.75rem', whiteSpace: 'nowrap' }}>{formatValue(subRow[col])}</td>
+                                              ))}
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
                     </tbody>
                   </table>
 

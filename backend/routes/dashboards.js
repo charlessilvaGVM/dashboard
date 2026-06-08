@@ -37,6 +37,11 @@ function parseRow(row) {
       try { row.extra_charts = JSON.parse(row.extra_charts); } catch { row.extra_charts = null; }
     }
   }
+  if (row.expand_config !== undefined && row.expand_config !== null) {
+    if (typeof row.expand_config === 'string') {
+      try { row.expand_config = JSON.parse(row.expand_config); } catch { row.expand_config = null; }
+    }
+  }
   return row;
 }
 
@@ -103,12 +108,32 @@ function validateActions(actions) {
   if (!Array.isArray(actions)) return null;
   for (const a of actions) {
     if (!a || typeof a !== 'object') throw new Error('Action inválida');
-    if (!IDENT_RE.test(String(a.sourceColumn || ''))) throw new Error(`sourceColumn inválido: "${a.sourceColumn}"`);
-    if (!IDENT_RE.test(String(a.targetParam  || ''))) throw new Error(`targetParam inválido: "${a.targetParam}"`);
     const targetId = Number(a.targetDashboardId);
     if (!Number.isInteger(targetId) || targetId <= 0) throw new Error('targetDashboardId inválido');
+    if (a.type !== 'direct') {
+      if (!IDENT_RE.test(String(a.sourceColumn || ''))) throw new Error(`sourceColumn inválido: "${a.sourceColumn}"`);
+      if (!IDENT_RE.test(String(a.targetParam  || ''))) throw new Error(`targetParam inválido: "${a.targetParam}"`);
+    }
   }
   return actions;
+}
+
+// Valida e sanitiza o objeto de expand_config (botão ⊕ nas linhas da tabela)
+// clickColumn e paramName são opcionais — se ausentes, o SQL roda sem substituição
+function validateExpandConfig(cfg) {
+  if (!cfg) return null;
+  if (typeof cfg !== 'object' || Array.isArray(cfg)) return null;
+  const dangerous = /\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER|CREATE|REPLACE|GRANT|REVOKE|EXEC|EXECUTE|CALL|LOAD|INTO OUTFILE|INTO DUMPFILE)\b/i;
+  const clickColumn = String(cfg.clickColumn || '').trim();
+  const paramName   = String(cfg.paramName   || '').trim();
+  if (clickColumn && !IDENT_RE.test(clickColumn)) throw new Error(`expand_config.clickColumn inválido: "${clickColumn}"`);
+  if (paramName   && !IDENT_RE.test(paramName))   throw new Error(`expand_config.paramName inválido: "${paramName}"`);
+  const sql = String(cfg.sql || '').trim();
+  if (!sql) throw new Error('expand_config.sql é obrigatório');
+  if (sql.length > MAX_SQL_LENGTH) throw new Error('expand_config.sql muito longo (máx 50 KB)');
+  if (!/^SELECT\s+/i.test(sql)) throw new Error('expand_config.sql deve ser uma consulta SELECT');
+  if (dangerous.test(sql)) throw new Error('expand_config.sql contém instrução não permitida');
+  return { clickColumn: clickColumn || null, paramName: paramName || null, sql };
 }
 
 // N7 — Valida tipo e tamanho de descricao
@@ -144,6 +169,7 @@ async function ensureTable() {
     [`ALTER TABLE gvmdash_dashboards ADD COLUMN refresh_interval INT DEFAULT 0`, 'refresh_interval column added'],
     [`ALTER TABLE gvmdash_dashboards ADD COLUMN connection_id INT DEFAULT NULL`, 'connection_id column added'],
     [`ALTER TABLE gvmdash_dashboards ADD COLUMN extra_charts LONGTEXT DEFAULT NULL`, 'extra_charts column added'],
+    [`ALTER TABLE gvmdash_dashboards ADD COLUMN expand_config LONGTEXT DEFAULT NULL`, 'expand_config column added'],
   ];
   for (const [sql, msg] of migrations) {
     try {
@@ -165,11 +191,11 @@ router.get('/', async (req, res) => {
     let rows;
     if (req.user?.nivel === 'admin') {
       [rows] = await db.query(
-        'SELECT id, nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, chart_config, column_hints, refresh_interval, connection_id, extra_charts, created_at, updated_at FROM gvmdash_dashboards ORDER BY updated_at DESC'
+        'SELECT id, nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, expand_config, chart_config, column_hints, refresh_interval, connection_id, extra_charts, created_at, updated_at FROM gvmdash_dashboards ORDER BY updated_at DESC'
       );
     } else {
       [rows] = await db.query(
-        `SELECT d.id, d.nome, d.descricao, d.sql_query, d.chart_sql_query, d.params, d.chart_type, d.links, d.actions, d.chart_config, d.column_hints, d.refresh_interval, d.connection_id, d.extra_charts, d.created_at, d.updated_at
+        `SELECT d.id, d.nome, d.descricao, d.sql_query, d.chart_sql_query, d.params, d.chart_type, d.links, d.actions, d.expand_config, d.chart_config, d.column_hints, d.refresh_interval, d.connection_id, d.extra_charts, d.created_at, d.updated_at
          FROM gvmdash_dashboards d
          INNER JOIN gvmdash_permissions dp ON dp.dashboard_id = d.id AND dp.user_id = ?
          ORDER BY d.updated_at DESC`,
@@ -187,7 +213,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', validateId, async (req, res) => {
   try {
     const [rows] = await db.query(
-      'SELECT id, nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, chart_config, column_hints, refresh_interval, connection_id, extra_charts, created_at, updated_at FROM gvmdash_dashboards WHERE id = ?',
+      'SELECT id, nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, expand_config, chart_config, column_hints, refresh_interval, connection_id, extra_charts, created_at, updated_at FROM gvmdash_dashboards WHERE id = ?',
       [req.params.id]
     );
     if (!rows || rows.length === 0) return res.status(404).json({ error: 'Dashboard not found' });
@@ -212,7 +238,7 @@ router.get('/:id', validateId, async (req, res) => {
 // POST / — A1: admin only
 router.post('/', adminOnly, async (req, res) => {
   try {
-    const { nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, column_hints, refresh_interval, connection_id, extra_charts } = req.body;
+    const { nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, expand_config, column_hints, refresh_interval, connection_id, extra_charts } = req.body;
 
     // M7/N2/N7 — Validar campos obrigatórios, tipos e tamanhos
     if (!nome || !sql_query) return res.status(400).json({ error: 'Nome e sql_query são obrigatórios' });
@@ -225,10 +251,11 @@ router.post('/', adminOnly, async (req, res) => {
     try { descricaoVal = validateDescricao(descricao); }
     catch (e) { return res.status(400).json({ error: e.message }); }
 
-    let validatedLinks, validatedActions;
+    let validatedLinks, validatedActions, validatedExpand;
     try {
       validatedLinks   = validateLinks(links);
       validatedActions = validateActions(actions);
+      validatedExpand  = validateExpandConfig(expand_config);
     } catch (e) { return res.status(400).json({ error: e.message }); }
 
     const chartSql = chart_sql_query && String(chart_sql_query).trim() ? String(chart_sql_query).trim() : null;
@@ -241,13 +268,14 @@ router.post('/', adminOnly, async (req, res) => {
     const connId = connection_id ? (parseInt(connection_id) || null) : null;
     const extraChartsVal = extra_charts && Array.isArray(extra_charts) && extra_charts.length > 0
       ? JSON.stringify(extra_charts) : null;
+    const expandVal = validatedExpand ? JSON.stringify(validatedExpand) : null;
 
     const [result] = await db.query(
-      'INSERT INTO gvmdash_dashboards (nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, column_hints, refresh_interval, connection_id, extra_charts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [nome, descricaoVal, sql_query, chartSql, serializeParams(params), chart_type || 'bar', serializeLinks(validatedLinks), serializeActions(validatedActions), hintsVal, refreshVal, connId, extraChartsVal]
+      'INSERT INTO gvmdash_dashboards (nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, expand_config, column_hints, refresh_interval, connection_id, extra_charts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [nome, descricaoVal, sql_query, chartSql, serializeParams(params), chart_type || 'bar', serializeLinks(validatedLinks), serializeActions(validatedActions), expandVal, hintsVal, refreshVal, connId, extraChartsVal]
     );
     const [rows] = await db.query(
-      'SELECT id, nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, chart_config, column_hints, refresh_interval, connection_id, extra_charts, created_at, updated_at FROM gvmdash_dashboards WHERE id = ?',
+      'SELECT id, nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, expand_config, chart_config, column_hints, refresh_interval, connection_id, extra_charts, created_at, updated_at FROM gvmdash_dashboards WHERE id = ?',
       [result.insertId]
     );
     await auditLog(req, 'create', 'dashboard', result.insertId, nome);
@@ -261,7 +289,8 @@ router.post('/', adminOnly, async (req, res) => {
 // PUT /:id — A1: admin only
 router.put('/:id', adminOnly, validateId, async (req, res) => {
   try {
-    const { nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, column_hints, refresh_interval, connection_id, extra_charts } = req.body;
+    const { nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, expand_config, column_hints, refresh_interval, connection_id, extra_charts } = req.body;
+    console.log('[dashboards/PUT] expand_config recebido:', JSON.stringify(expand_config)?.slice(0, 200));
 
     // M7/N2/N7 — Validar campos obrigatórios, tipos e tamanhos
     if (!nome || !sql_query) return res.status(400).json({ error: 'Nome e sql_query são obrigatórios' });
@@ -274,10 +303,11 @@ router.put('/:id', adminOnly, validateId, async (req, res) => {
     try { descricaoVal = validateDescricao(descricao); }
     catch (e) { return res.status(400).json({ error: e.message }); }
 
-    let validatedLinks, validatedActions;
+    let validatedLinks, validatedActions, validatedExpand;
     try {
       validatedLinks   = validateLinks(links);
       validatedActions = validateActions(actions);
+      validatedExpand  = validateExpandConfig(expand_config);
     } catch (e) { return res.status(400).json({ error: e.message }); }
 
     const chartSql = chart_sql_query && String(chart_sql_query).trim() ? String(chart_sql_query).trim() : null;
@@ -290,15 +320,16 @@ router.put('/:id', adminOnly, validateId, async (req, res) => {
     const connId = connection_id ? (parseInt(connection_id) || null) : null;
     const extraChartsVal = extra_charts && Array.isArray(extra_charts) && extra_charts.length > 0
       ? JSON.stringify(extra_charts) : null;
+    const expandVal = validatedExpand ? JSON.stringify(validatedExpand) : null;
 
     const [result] = await db.query(
-      'UPDATE gvmdash_dashboards SET nome = ?, descricao = ?, sql_query = ?, chart_sql_query = ?, params = ?, chart_type = ?, links = ?, actions = ?, column_hints = ?, refresh_interval = ?, connection_id = ?, extra_charts = ? WHERE id = ?',
-      [nome, descricaoVal, sql_query, chartSql, serializeParams(params), chart_type || 'bar', serializeLinks(validatedLinks), serializeActions(validatedActions), hintsVal, refreshVal, connId, extraChartsVal, req.params.id]
+      'UPDATE gvmdash_dashboards SET nome = ?, descricao = ?, sql_query = ?, chart_sql_query = ?, params = ?, chart_type = ?, links = ?, actions = ?, expand_config = ?, column_hints = ?, refresh_interval = ?, connection_id = ?, extra_charts = ? WHERE id = ?',
+      [nome, descricaoVal, sql_query, chartSql, serializeParams(params), chart_type || 'bar', serializeLinks(validatedLinks), serializeActions(validatedActions), expandVal, hintsVal, refreshVal, connId, extraChartsVal, req.params.id]
     );
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Dashboard not found' });
 
     const [rows] = await db.query(
-      'SELECT id, nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, chart_config, column_hints, refresh_interval, connection_id, extra_charts, created_at, updated_at FROM gvmdash_dashboards WHERE id = ?',
+      'SELECT id, nome, descricao, sql_query, chart_sql_query, params, chart_type, links, actions, expand_config, chart_config, column_hints, refresh_interval, connection_id, extra_charts, created_at, updated_at FROM gvmdash_dashboards WHERE id = ?',
       [req.params.id]
     );
     await auditLog(req, 'update', 'dashboard', Number(req.params.id), nome);
