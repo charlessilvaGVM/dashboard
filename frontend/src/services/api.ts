@@ -288,8 +288,8 @@ export async function saveExtraChartConfig(id: number, extra_charts: ExtraChart[
 export async function deleteDashboard(id: number): Promise<{ message: string }> {
   return request<{ message: string }>('DELETE', `/dashboards/${id}`);
 }
-export async function saveChartConfig(id: number, chart_config: ChartConfig | null): Promise<{ ok: boolean }> {
-  return request<{ ok: boolean }>('PATCH', `/dashboards/${id}/chart-config`, { chart_config });
+export async function saveChartConfig(id: number, chart_config: ChartConfig | null, chart_type?: ChartType): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>('PATCH', `/dashboards/${id}/chart-config`, { chart_config, chart_type });
 }
 
 // ── Attachments ───────────────────────────────────────────────────────────────

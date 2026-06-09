@@ -361,9 +361,8 @@ router.put('/:id', adminOnly, validateId, async (req, res) => {
 // PATCH /:id/chart-config — A1: admin only; M6: validar estrutura
 router.patch('/:id/chart-config', adminOnly, validateId, async (req, res) => {
   try {
-    const { chart_config } = req.body;
+    const { chart_config, chart_type } = req.body;
 
-    // M6 — Validar estrutura do chart_config
     if (chart_config !== null && chart_config !== undefined) {
       if (typeof chart_config !== 'object' || Array.isArray(chart_config))
         return res.status(400).json({ error: 'chart_config deve ser um objeto' });
@@ -373,10 +372,17 @@ router.patch('/:id/chart-config', adminOnly, validateId, async (req, res) => {
         return res.status(400).json({ error: 'chart_config.valueCols deve ser array' });
     }
 
-    const value = chart_config ? JSON.stringify(chart_config) : null;
+    const VALID_TYPES = ['bar','line','area','pie','donut','none'];
+    const typeVal  = chart_type && VALID_TYPES.includes(chart_type) ? chart_type : null;
+    const cfgVal   = chart_config ? JSON.stringify(chart_config) : null;
+
+    const sets  = ['chart_config = ?'];
+    const vals  = [cfgVal];
+    if (typeVal) { sets.push('chart_type = ?'); vals.push(typeVal); }
+    vals.push(req.params.id);
+
     const [result] = await db.query(
-      'UPDATE gvmdash_dashboards SET chart_config = ? WHERE id = ?',
-      [value, req.params.id]
+      `UPDATE gvmdash_dashboards SET ${sets.join(', ')} WHERE id = ?`, vals
     );
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Dashboard not found' });
     res.json({ ok: true });

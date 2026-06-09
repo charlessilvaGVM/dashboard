@@ -1089,7 +1089,7 @@ export default function DashboardView() {
                               if (!dashboard) return;
                               setSavingChart(true);
                               try {
-                                await saveChartConfig(dashboard.id, { labelCol: curLabel, valueCols: curValues });
+                                await saveChartConfig(dashboard.id, { labelCol: curLabel, valueCols: curValues }, chartType);
                                 await queryClient.invalidateQueries({ queryKey: ['dashboard', id] });
                                 toast({ title: 'Configuração do gráfico salva!' });
                               } catch {
